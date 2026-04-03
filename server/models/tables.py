@@ -24,10 +24,15 @@ class SalesforceConnection(Base):
 
     id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
     name: Mapped[str] = mapped_column(Text, nullable=False)
-    domain: Mapped[str] = mapped_column(Text, nullable=False)
-    consumer_key: Mapped[str] = mapped_column(Text, nullable=False)
-    consumer_secret: Mapped[str] = mapped_column(Text, nullable=False)
+    # connection_type: "salesforce" | "http"
+    connection_type: Mapped[str] = mapped_column(Text, nullable=False, default="salesforce")
+    # Salesforce fields (nullable for HTTP connections)
+    domain: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    consumer_key: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    consumer_secret: Mapped[str] = mapped_column(Text, nullable=False, default="")
     default_agent_id: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Generic config for non-Salesforce connection types (auth, base_url, etc.)
+    config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -46,6 +51,8 @@ class Agent(Base):
     planner_id: Mapped[str | None] = mapped_column(Text, nullable=True)
     planner_name: Mapped[str | None] = mapped_column(Text, nullable=True)
     runtime_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # HTTP agent config: {endpoint, method, headers, body_template, response_path}
+    config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     topics: Mapped[dict] = mapped_column(JSONB, default=list)
     actions: Mapped[dict] = mapped_column(JSONB, default=list)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

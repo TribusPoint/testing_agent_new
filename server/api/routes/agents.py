@@ -231,15 +231,18 @@ async def add_agent_manually(
     else:
         agent = Agent(
             connection_id=connection_id,
-            salesforce_id=body.salesforce_id,
+            salesforce_id=body.salesforce_id or body.name,
             name=body.name,
             developer_name=body.developer_name or body.name,
             agent_type=body.agent_type,
+            config=body.config,
             topics=[],
             actions=[],
         )
         db.add(agent)
 
+    if body.config is not None:
+        agent.config = body.config
     await db.commit()
     await db.refresh(agent)
     return agent
@@ -339,7 +342,9 @@ async def update_agent(agent_id: str, body: AgentUpdate, db: AsyncSession = Depe
     if body.agent_type is not None:
         agent.agent_type = body.agent_type
     if body.runtime_url is not None:
-        agent.runtime_url = body.runtime_url or None  # empty string → NULL
+        agent.runtime_url = body.runtime_url or None
+    if body.config is not None:
+        agent.config = body.config or None
     await db.commit()
     await db.refresh(agent)
     return agent

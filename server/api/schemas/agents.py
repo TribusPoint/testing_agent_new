@@ -12,6 +12,7 @@ class AgentResponse(BaseModel):
     planner_id: str | None
     planner_name: str | None
     runtime_url: str | None = None
+    config: dict | None = None
     topics: list
     actions: list
     created_at: datetime
@@ -21,11 +22,12 @@ class AgentResponse(BaseModel):
 
 
 class AgentCreate(BaseModel):
-    salesforce_id: str
+    salesforce_id: str = ""
     name: str
     developer_name: str = ""
     agent_type: str = "agentforce"
     runtime_url: str | None = None
+    config: dict | None = None
 
 
 class AgentUpdate(BaseModel):
@@ -34,6 +36,16 @@ class AgentUpdate(BaseModel):
     developer_name: str | None = None
     agent_type: str | None = None
     runtime_url: str | None = None
+    config: dict | None = None
+
+
+class HttpAgentConfig(BaseModel):
+    """Config for a Generic HTTP agent — stored in agents.config."""
+    endpoint: str
+    method: str = "POST"
+    body_template: str = '{"message": "{{question}}"}'
+    response_path: str = ""
+    extra_headers: dict = {}
 
 
 class ChatRequest(BaseModel):

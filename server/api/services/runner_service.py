@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update as sa_update
 from models.tables import TestRun, TestRunResult, InitiatingQuestion, Agent, SalesforceConnection
 from api.services.salesforce import get_token, create_session, send_message, end_session, SalesforceError
+from api.services.http_service import send_http_message, HttpServiceError
 from api.services.inspired_utterance import get_inspired_utterance
 from api.services.evaluation_service import evaluate_result
 from api.services.event_bus import publish
@@ -62,10 +63,13 @@ async def execute_run(run_id: str, db: AsyncSession) -> None:
     agent_salesforce_id = agent.salesforce_id
     agent_developer_name = agent.developer_name or ""
     agent_runtime_url = agent.runtime_url or None
+    agent_config = agent.config or {}
     conn = await db.get(SalesforceConnection, agent.connection_id)
     conn_domain = conn.domain
     conn_consumer_key = conn.consumer_key
     conn_consumer_secret = conn.consumer_secret
+    conn_type = conn.connection_type or "salesforce"
+    conn_config = conn.config or {}
     db.expunge(agent)
     db.expunge(conn)
 
@@ -89,16 +93,18 @@ async def execute_run(run_id: str, db: AsyncSession) -> None:
     )
     results = result.scalars().all()
 
-    # Authenticate once — fail the whole run if this fails
-    try:
-        token = await get_token(conn_domain, conn_consumer_key, conn_consumer_secret)
-    except SalesforceError as e:
-        await db.execute(
-            sa_update(TestRun).where(TestRun.id == run_id).values(status="failed")
-        )
-        await db.commit()
-        await publish(run_id, {"type": "run_failed", "run_id": run_id, "error": str(e)})
-        return
+    # Authenticate once for Salesforce; HTTP needs no pre-auth
+    token = None
+    if conn_type == "salesforce":
+        try:
+            token = await get_token(conn_domain, conn_consumer_key, conn_consumer_secret)
+        except SalesforceError as e:
+            await db.execute(
+                sa_update(TestRun).where(TestRun.id == run_id).values(status="failed")
+            )
+            await db.commit()
+            await publish(run_id, {"type": "run_failed", "run_id": run_id, "error": str(e)})
+            return
 
     completed_count = 0
 
@@ -120,19 +126,33 @@ async def execute_run(run_id: str, db: AsyncSession) -> None:
         })
 
         try:
-            session_id = await create_session(
-                conn_domain, token, agent_salesforce_id,
-                developer_name=agent_developer_name,
-                runtime_url=agent_runtime_url,
-            )
+            session_id = None
+            seq = 1
 
-            seq = 1  # Sequence ID — increments with each message in the session
-            start = time.monotonic()
-            response_text = await send_message(
-                conn_domain, token, agent_salesforce_id, session_id, result_row.question_text, seq_id=seq
-            )
-            latency_ms = int((time.monotonic() - start) * 1000)
-            seq += 1
+            if conn_type == "http":
+                # ── Generic HTTP ──────────────────────────────────────────
+                start = time.monotonic()
+                response_text = await send_http_message(
+                    conn_config=conn_config,
+                    agent_config=agent_config,
+                    question=result_row.question_text,
+                    timeout=settings.SF_TURN_TIMEOUT,
+                )
+                latency_ms = int((time.monotonic() - start) * 1000)
+            else:
+                # ── Salesforce AgentForce ────────────────────────────────
+                session_id = await create_session(
+                    conn_domain, token, agent_salesforce_id,
+                    developer_name=agent_developer_name,
+                    runtime_url=agent_runtime_url,
+                )
+                start = time.monotonic()
+                response_text = await send_message(
+                    conn_domain, token, agent_salesforce_id, session_id,
+                    result_row.question_text, seq_id=seq,
+                )
+                latency_ms = int((time.monotonic() - start) * 1000)
+                seq += 1
 
             conversation = [
                 {"role": "user", "text": result_row.question_text},
@@ -167,10 +187,19 @@ async def execute_run(run_id: str, db: AsyncSession) -> None:
                 if not next_utterance:
                     break
 
-                follow_up_response = await send_message(
-                    conn_domain, token, agent_salesforce_id, session_id, next_utterance, seq_id=seq
-                )
-                seq += 1
+                if conn_type == "http":
+                    follow_up_response = await send_http_message(
+                        conn_config=conn_config,
+                        agent_config=agent_config,
+                        question=next_utterance,
+                        timeout=settings.SF_TURN_TIMEOUT,
+                    )
+                else:
+                    follow_up_response = await send_message(
+                        conn_domain, token, agent_salesforce_id, session_id,
+                        next_utterance, seq_id=seq,
+                    )
+                    seq += 1
                 follow_ups.append({
                     "utterance": next_utterance,
                     "response": follow_up_response,
@@ -203,8 +232,8 @@ async def execute_run(run_id: str, db: AsyncSession) -> None:
             result_row.evaluation_notes = evaluation["notes"]
             result_row.status = "completed"
 
-        except SalesforceError as e:
-            logger.error("Salesforce error for result %s in run %s: %s", result_row.id, run_id, e)
+        except (SalesforceError, HttpServiceError) as e:
+            logger.error("Connector error for result %s in run %s: %s", result_row.id, run_id, e)
             result_row.response_text = f"Error: {e}"
             result_row.status = "failed"
             await publish(run_id, {
