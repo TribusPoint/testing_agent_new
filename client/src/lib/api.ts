@@ -52,6 +52,38 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as T;
 }
 
+// Browser probe
+export interface ProbeCandidate {
+  selector: string;
+  score: number;
+  count: number;
+  placeholder?: string;
+  text?: string;
+  iframe?: string | null;
+}
+export interface ProbeResult {
+  success: boolean;
+  url?: string;
+  launcher_clicked?: string | null;
+  error?: string;
+  suggested?: {
+    input_selector: string;
+    send_selector: string;
+    response_selector: string;
+    iframe_selector: string;
+    load_wait_ms: number;
+    wait_after_send_ms: number;
+  };
+  candidates?: {
+    input: ProbeCandidate[];
+    send: ProbeCandidate[];
+    response: ProbeCandidate[];
+  };
+  screenshot_b64?: string | null;
+}
+export const probeBrowserUrl = (url: string) =>
+  req<ProbeResult>("/api/browser/probe", { method: "POST", body: JSON.stringify({ url }) });
+
 // Connections
 export const listConnections = () => req<Connection[]>("/api/connections");
 export const createConnection = (b: ConnectionCreate) =>

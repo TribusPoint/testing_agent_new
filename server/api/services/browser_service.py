@@ -206,6 +206,285 @@ async def send_browser_message_once(agent_config: dict, question: str) -> str:
 
 # ── Connection test ─────────────────────────────────────────────────────────
 
+async def probe_page(url: str) -> dict:
+    """
+    Open *url* in a headless browser and auto-discover chat widget selectors.
+
+    Strategy:
+    1. Load the page and wait for JS to settle.
+    2. Try to click common "open chat" launcher buttons.
+    3. Scan the main frame AND any iframes for candidate inputs, send
+       buttons, and response containers.
+    4. Score every candidate by how chat-like it looks.
+    5. Return the top suggestions + a screenshot for visual verification.
+    """
+    try:
+        from playwright.async_api import async_playwright
+    except ImportError:
+        return {
+            "success": False,
+            "error": "Playwright is not installed. Run: pip install playwright && playwright install chromium",
+        }
+
+    # ── Pattern libraries ─────────────────────────────────────────────────────
+
+    # Selectors tried in order to open a chat launcher before scanning
+    LAUNCHER_SELECTORS = [
+        "[id*='chat'][class*='button' i]",
+        "[class*='chat-launcher' i]",
+        "[class*='chat-button' i]",
+        "[class*='launcher' i]",
+        "[aria-label*='chat' i]",
+        "[aria-label*='help' i]",
+        "[title*='chat' i]",
+        "[id*='launcher' i]",
+        "[id*='chat-button' i]",
+        "button[class*='fab' i]",
+        "[data-testid*='chat' i]",
+        # LivePerson
+        "#lpChat .lp-btn-chat",
+        # Salesforce MIAW
+        ".embeddedServiceHelpButton button",
+        # Genesys
+        ".cx-widget.cx-webchat-launcher",
+        # Intercom
+        ".intercom-launcher",
+        # Zendesk
+        "#launcher",
+    ]
+
+    # Candidate input selectors scored by specificity
+    INPUT_PATTERNS = [
+        ("input[placeholder*='message' i]", 10),
+        ("textarea[placeholder*='message' i]", 10),
+        ("input[placeholder*='type' i]", 9),
+        ("textarea[placeholder*='type' i]", 9),
+        ("input[placeholder*='ask' i]", 9),
+        ("textarea[placeholder*='ask' i]", 9),
+        ("input[placeholder*='chat' i]", 8),
+        ("textarea[placeholder*='chat' i]", 8),
+        ("input[id*='message' i]", 7),
+        ("textarea[id*='message' i]", 7),
+        ("input[id*='chat' i]", 7),
+        ("textarea[id*='chat' i]", 7),
+        ("input[id*='input' i]", 6),
+        ("textarea[id*='input' i]", 6),
+        ("input[name*='message' i]", 6),
+        ("[contenteditable='true']", 5),
+        ("input[class*='message' i]", 5),
+        ("textarea[class*='message' i]", 5),
+        ("input[class*='chat' i]", 5),
+        ("textarea[class*='chat' i]", 5),
+        # Salesforce MIAW
+        ("input[name='userInput']", 10),
+        # Genesys
+        ("input.cx-message", 10),
+        # LivePerson
+        ("#lp-msga", 10),
+        # Intercom
+        (".intercom-composer-input", 10),
+        # Zendesk
+        ("#Embed textarea", 10),
+    ]
+
+    SEND_PATTERNS = [
+        ("button[aria-label*='send' i]", 10),
+        ("button[title*='send' i]", 10),
+        ("[data-testid*='send' i]", 10),
+        ("button[type='submit']", 7),
+        ("button[class*='send' i]", 8),
+        ("button[id*='send' i]", 8),
+        ("[aria-label*='submit' i]", 7),
+        # Salesforce MIAW
+        ("button[title='Send']", 10),
+        # Genesys
+        ("button.cx-send", 10),
+        # LivePerson
+        ("#send_button", 10),
+        # Intercom
+        ("button[data-testid='send-button']", 10),
+        # Zendesk
+        ("#Embed button[type='submit']", 10),
+    ]
+
+    RESPONSE_PATTERNS = [
+        (".slds-chat-listitem_inbound .slds-chat-message__text", 10),  # Salesforce MIAW
+        ("[data-testid='message-text']", 9),  # Intercom
+        (".cx-transcript .agent .cx-message", 9),  # Genesys
+        (".bot-message", 8),
+        (".assistant-message", 8),
+        (".agent-message", 8),
+        ("[data-sender='agent']", 8),
+        ("[data-role='bot']", 8),
+        ("[data-author-type='agent' i]", 7),
+        (".chat-message:not(.user-message)", 6),
+        (".message[class*='bot' i]", 6),
+        (".message[class*='agent' i]", 6),
+        # Zendesk
+        ("[data-garden-id='chat.message'] [data-garden-id='typography.paragraph']", 9),
+        # LivePerson
+        (".lpview_message_area .agent-avatar ~ .message-content", 7),
+    ]
+
+    async with async_playwright() as pw:
+        browser = await pw.chromium.launch(
+            headless=True,
+            args=["--no-sandbox", "--disable-dev-shm-usage"],
+        )
+        context = await browser.new_context(
+            viewport={"width": 1280, "height": 900},
+            user_agent=(
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/120.0.0.0 Safari/537.36"
+            ),
+        )
+        page = await context.new_page()
+
+        try:
+            try:
+                await page.goto(url, wait_until="networkidle", timeout=30_000)
+            except Exception:
+                await page.goto(url, wait_until="domcontentloaded", timeout=20_000)
+                await page.wait_for_timeout(3000)
+
+            await page.wait_for_timeout(2000)
+
+            # ── Step 1: Try to open the chat launcher ─────────────────────
+            launcher_clicked = None
+            for sel in LAUNCHER_SELECTORS:
+                try:
+                    el = await page.query_selector(sel)
+                    if el and await el.is_visible():
+                        await el.click()
+                        launcher_clicked = sel
+                        await page.wait_for_timeout(2000)
+                        break
+                except Exception:
+                    pass
+
+            # ── Step 2: Collect all frames (main + iframes) ────────────────
+            frames_to_scan = []  # list of (frame_or_page, iframe_selector_or_None)
+            frames_to_scan.append((page, None))
+
+            iframe_els = await page.query_selector_all("iframe")
+            for iframe_el in iframe_els:
+                try:
+                    frame = await iframe_el.content_frame()
+                    if frame:
+                        # Get a useful selector for this iframe
+                        src = await iframe_el.get_attribute("src") or ""
+                        id_ = await iframe_el.get_attribute("id") or ""
+                        cls = await iframe_el.get_attribute("class") or ""
+                        name = await iframe_el.get_attribute("name") or ""
+                        if id_:
+                            sel = f"iframe#{id_}"
+                        elif name:
+                            sel = f"iframe[name='{name}']"
+                        elif "chat" in src.lower() or "chat" in cls.lower():
+                            sel = f"iframe[src*='{src.split('?')[0].split('/')[-1]}']" if src else "iframe"
+                        else:
+                            sel = None  # not worth tracking
+                        frames_to_scan.append((frame, sel))
+                except Exception:
+                    pass
+
+            # ── Step 3: Scan frames for candidates ─────────────────────────
+            best: dict = {
+                "input": None, "send": None, "response": None, "iframe": None,
+            }
+            all_candidates: dict = {"input": [], "send": [], "response": []}
+
+            for frame, iframe_sel in frames_to_scan:
+                for patterns, category in [
+                    (INPUT_PATTERNS, "input"),
+                    (SEND_PATTERNS, "send"),
+                    (RESPONSE_PATTERNS, "response"),
+                ]:
+                    for sel, score in patterns:
+                        try:
+                            els = await frame.query_selector_all(sel)
+                            visible = []
+                            for el in els:
+                                try:
+                                    if await el.is_visible():
+                                        visible.append(el)
+                                except Exception:
+                                    pass
+                            if visible:
+                                # Get extra info for display
+                                el = visible[0]
+                                placeholder = ""
+                                text = ""
+                                try:
+                                    placeholder = await el.get_attribute("placeholder") or ""
+                                except Exception:
+                                    pass
+                                try:
+                                    text = (await el.inner_text())[:60] or ""
+                                except Exception:
+                                    pass
+                                candidate = {
+                                    "selector": sel,
+                                    "score": score + (5 if iframe_sel else 0),  # iframe bonus
+                                    "count": len(visible),
+                                    "placeholder": placeholder,
+                                    "text": text.strip(),
+                                    "iframe": iframe_sel,
+                                }
+                                all_candidates[category].append(candidate)
+                                # Update best if higher score
+                                if best[category] is None or candidate["score"] > best[category]["score"]:
+                                    best[category] = candidate
+                                    if iframe_sel:
+                                        best["iframe"] = iframe_sel
+                        except Exception:
+                            pass
+
+            # ── Step 4: Screenshot ─────────────────────────────────────────
+            import base64
+            png = await page.screenshot(type="png", full_page=False)
+            screenshot_b64 = base64.b64encode(png).decode()
+
+            # ── Step 5: Build response ─────────────────────────────────────
+            suggested = {
+                "input_selector": best["input"]["selector"] if best["input"] else "",
+                "send_selector": best["send"]["selector"] if best["send"] else "Enter",
+                "response_selector": best["response"]["selector"] if best["response"] else "",
+                "iframe_selector": best["iframe"] or "",
+                "load_wait_ms": 2000,
+                "wait_after_send_ms": 5000,
+            }
+
+            return {
+                "success": True,
+                "url": url,
+                "launcher_clicked": launcher_clicked,
+                "suggested": suggested,
+                "candidates": {
+                    cat: sorted(cands, key=lambda x: -x["score"])[:5]
+                    for cat, cands in all_candidates.items()
+                },
+                "screenshot_b64": screenshot_b64,
+            }
+
+        except Exception as e:
+            import base64
+            screenshot_b64 = None
+            try:
+                png = await page.screenshot(type="png")
+                screenshot_b64 = base64.b64encode(png).decode()
+            except Exception:
+                pass
+            return {
+                "success": False,
+                "error": str(e),
+                "screenshot_b64": screenshot_b64,
+            }
+        finally:
+            await browser.close()
+
+
 async def test_browser_connection(agent_config: dict) -> dict:
     """
     Open the URL, take a screenshot, return reachability info.

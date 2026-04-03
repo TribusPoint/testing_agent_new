@@ -58,6 +58,8 @@ export default function ConnectionsPage() {
   const [showBrowserAgentForm, setShowBrowserAgentForm] = useState(false);
   const [screenshotResult, setScreenshotResult] = useState<{ success: boolean; message: string; screenshot_b64?: string | null } | null>(null);
   const [takingScreenshot, setTakingScreenshot] = useState(false);
+  const [probeResult, setProbeResult] = useState<api.ProbeResult | null>(null);
+  const [probing, setProbing] = useState(false);
 
   // Edit agent
   const [editingAgent, setEditingAgent] = useState<api.Agent | null>(null);
@@ -216,6 +218,31 @@ export default function ConnectionsPage() {
     } catch (e: unknown) {
       setScreenshotResult({ success: false, message: e instanceof Error ? e.message : "Failed" });
     } finally { setTakingScreenshot(false); }
+  }
+
+  async function handleProbe() {
+    const url = browserAgentForm.url.trim();
+    if (!url) { alert("Enter a Page URL first"); return; }
+    setProbing(true);
+    setProbeResult(null);
+    try {
+      const result = await api.probeBrowserUrl(url);
+      setProbeResult(result);
+      if (result.success && result.suggested) {
+        // Auto-fill form fields with discovered selectors
+        setBrowserAgentForm((f) => ({
+          ...f,
+          input_selector: result.suggested!.input_selector || f.input_selector,
+          send_selector: result.suggested!.send_selector || f.send_selector,
+          response_selector: result.suggested!.response_selector || f.response_selector,
+          iframe_selector: result.suggested!.iframe_selector || f.iframe_selector,
+          load_wait_ms: String(result.suggested!.load_wait_ms || f.load_wait_ms),
+          wait_after_send_ms: String(result.suggested!.wait_after_send_ms || f.wait_after_send_ms),
+        }));
+      }
+    } catch (e: unknown) {
+      setProbeResult({ success: false, error: e instanceof Error ? e.message : "Probe failed" });
+    } finally { setProbing(false); }
   }
 
   async function handleTest() {
@@ -990,7 +1017,31 @@ export default function ConnectionsPage() {
                     </p>
 
                     <input placeholder="Agent Name (e.g. Stanford Chatbot)" value={browserAgentForm.name} onChange={(e) => setBrowserAgentForm((f) => ({ ...f, name: e.target.value }))} className={INPUT_CLS} />
-                    <input placeholder="Page URL (e.g. https://www.stanford.edu/admissions)" value={browserAgentForm.url} onChange={(e) => setBrowserAgentForm((f) => ({ ...f, url: e.target.value }))} className={INPUT_CLS} />
+                    <div className="flex gap-2">
+                      <input
+                        placeholder="Page URL (e.g. https://www.clevelandclinic.org)"
+                        value={browserAgentForm.url}
+                        onChange={(e) => setBrowserAgentForm((f) => ({ ...f, url: e.target.value }))}
+                        className={INPUT_CLS + " flex-1"}
+                      />
+                      <button
+                        onClick={handleProbe}
+                        disabled={probing || !browserAgentForm.url.trim()}
+                        title="Auto-discover chat widget selectors"
+                        className="text-xs px-3 py-1.5 bg-violet-600 text-white rounded hover:bg-violet-700 disabled:opacity-50 shrink-0 flex items-center gap-1"
+                      >
+                        {probing ? (
+                          <><span className="animate-spin">⏳</span> Scanning…</>
+                        ) : (
+                          <>🔍 Discover</>
+                        )}
+                      </button>
+                    </div>
+                    {probing && (
+                      <p className="text-[10px] text-violet-600 dark:text-violet-400 animate-pulse">
+                        Opening browser, clicking chat launcher, scanning DOM for selectors… (may take 10–20s)
+                      </p>
+                    )}
 
                     <div className="grid grid-cols-1 gap-2">
                       <input placeholder="Input selector (e.g. input[placeholder*='message' i])" value={browserAgentForm.input_selector} onChange={(e) => setBrowserAgentForm((f) => ({ ...f, input_selector: e.target.value }))} className={INPUT_CLS + " font-mono text-[11px]"} />
@@ -1037,6 +1088,60 @@ export default function ConnectionsPage() {
                 {agents.filter((a) => a.agent_type === "browser").length > 0 && (
                   <div className="mt-1 text-[10px] text-gray-400">
                     <p>Tip: Click <strong>📸 Screenshot</strong> on a saved agent to verify the page loads correctly before running tests.</p>
+                  </div>
+                )}
+
+                {/* Probe results */}
+                {probeResult && (
+                  <div className={`mt-2 rounded border p-3 text-xs ${probeResult.success ? "bg-violet-50 dark:bg-violet-950/20 border-violet-200 dark:border-violet-800" : "bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800"}`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <span className={`font-medium ${probeResult.success ? "text-violet-700 dark:text-violet-300" : "text-red-600"}`}>
+                        {probeResult.success ? "✅ Selectors discovered — form auto-filled!" : `❌ ${probeResult.error}`}
+                      </span>
+                      <button onClick={() => setProbeResult(null)} className="text-gray-400 hover:text-gray-600 text-[10px]">✕</button>
+                    </div>
+
+                    {probeResult.launcher_clicked && (
+                      <p className="text-[10px] text-gray-500 mb-2">Chat launcher clicked: <code className="bg-white dark:bg-gray-900 px-1 rounded">{probeResult.launcher_clicked}</code></p>
+                    )}
+
+                    {probeResult.success && probeResult.candidates && (
+                      <div className="space-y-2 mb-2">
+                        {(["input", "send", "response"] as const).map((cat) => {
+                          const cands = probeResult.candidates![cat];
+                          if (!cands?.length) return null;
+                          return (
+                            <div key={cat}>
+                              <p className="text-[10px] font-semibold text-gray-600 dark:text-gray-400 uppercase mb-0.5">{cat} candidates</p>
+                              <div className="space-y-0.5">
+                                {cands.slice(0, 3).map((c, i) => (
+                                  <div key={i} className="flex items-center gap-2 bg-white dark:bg-gray-900 rounded px-2 py-1">
+                                    <code className="text-[10px] flex-1 truncate text-violet-700 dark:text-violet-300">{c.selector}</code>
+                                    {c.placeholder && <span className="text-[10px] text-gray-400 shrink-0 truncate max-w-[120px]">"{c.placeholder}"</span>}
+                                    <button
+                                      onClick={() => {
+                                        const key = cat === "input" ? "input_selector" : cat === "send" ? "send_selector" : "response_selector";
+                                        setBrowserAgentForm((f) => ({ ...f, [key]: c.selector }));
+                                      }}
+                                      className="text-[10px] text-violet-600 hover:underline shrink-0"
+                                    >
+                                      Use
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {probeResult.screenshot_b64 && (
+                      <div>
+                        <p className="text-[10px] text-gray-500 mb-1">Screenshot (after opening chat launcher):</p>
+                        <img src={`data:image/png;base64,${probeResult.screenshot_b64}`} alt="Probe screenshot" className="rounded border border-gray-200 dark:border-gray-700 max-w-full" />
+                      </div>
+                    )}
                   </div>
                 )}
               </div>

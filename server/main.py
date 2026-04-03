@@ -11,6 +11,7 @@ from api.routes.generate import router as generate_router
 from api.routes.runs import router as runs_router
 from api.routes.reports import router as reports_router
 from api.routes.dashboard import router as dashboard_router
+from api.routes.browser import router as browser_router
 
 app = FastAPI(
     title="Testing Agent API",
@@ -38,6 +39,7 @@ app.include_router(generate_router, dependencies=_auth)
 app.include_router(runs_router, dependencies=_auth)
 app.include_router(reports_router, dependencies=_auth)
 app.include_router(dashboard_router, dependencies=_auth)
+app.include_router(browser_router, dependencies=_auth)
 
 
 @app.get("/health")
