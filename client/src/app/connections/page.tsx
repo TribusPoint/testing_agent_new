@@ -229,15 +229,16 @@ export default function ConnectionsPage() {
       const result = await api.probeBrowserUrl(url);
       setProbeResult(result);
       if (result.success && result.suggested) {
-        // Auto-fill form fields with discovered selectors
+        const s = result.suggested;
+        // Only overwrite a field if the probe found something for it
         setBrowserAgentForm((f) => ({
           ...f,
-          input_selector: result.suggested!.input_selector || f.input_selector,
-          send_selector: result.suggested!.send_selector || f.send_selector,
-          response_selector: result.suggested!.response_selector || f.response_selector,
-          iframe_selector: result.suggested!.iframe_selector || f.iframe_selector,
-          load_wait_ms: String(result.suggested!.load_wait_ms || f.load_wait_ms),
-          wait_after_send_ms: String(result.suggested!.wait_after_send_ms || f.wait_after_send_ms),
+          ...(s.input_selector    ? { input_selector:    s.input_selector }    : {}),
+          ...(s.send_selector     ? { send_selector:     s.send_selector }     : {}),
+          ...(s.response_selector ? { response_selector: s.response_selector } : {}),
+          ...(s.iframe_selector   ? { iframe_selector:   s.iframe_selector }   : {}),
+          ...(s.load_wait_ms      ? { load_wait_ms:      String(s.load_wait_ms) } : {}),
+          ...(s.wait_after_send_ms ? { wait_after_send_ms: String(s.wait_after_send_ms) } : {}),
         }));
       }
     } catch (e: unknown) {
@@ -1092,41 +1093,49 @@ export default function ConnectionsPage() {
                 )}
 
                 {/* Probe results */}
-                {probeResult && (
-                  <div className={`mt-2 rounded border p-3 text-xs ${probeResult.success ? "bg-violet-50 dark:bg-violet-950/20 border-violet-200 dark:border-violet-800" : "bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800"}`}>
+                {probeResult && (() => {
+                  const found = probeResult.found_count ?? 0;
+                  const hasSelectors = found > 0;
+                  const color = !probeResult.success ? "red" : hasSelectors ? "violet" : "amber";
+                  const bgCls = color === "red" ? "bg-red-50 dark:bg-red-950/20 border-red-200 dark:border-red-800"
+                    : color === "violet" ? "bg-violet-50 dark:bg-violet-950/20 border-violet-200 dark:border-violet-800"
+                    : "bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800";
+                  const textCls = color === "red" ? "text-red-600" : color === "violet" ? "text-violet-700 dark:text-violet-300" : "text-amber-700 dark:text-amber-400";
+                  const icon = !probeResult.success ? "❌" : hasSelectors ? "✅" : "⚠️";
+                  const msg = !probeResult.success
+                    ? probeResult.error
+                    : hasSelectors
+                    ? `Found ${found}/3 selector types — form auto-filled!`
+                    : "Page scanned but no chat widget selectors detected. See raw elements below to build selectors manually.";
+                  return (
+                  <div className={`mt-2 rounded border p-3 text-xs ${bgCls}`}>
                     <div className="flex items-center justify-between mb-2">
-                      <span className={`font-medium ${probeResult.success ? "text-violet-700 dark:text-violet-300" : "text-red-600"}`}>
-                        {probeResult.success ? "✅ Selectors discovered — form auto-filled!" : `❌ ${probeResult.error}`}
-                      </span>
+                      <span className={`font-medium ${textCls}`}>{icon} {msg}</span>
                       <button onClick={() => setProbeResult(null)} className="text-gray-400 hover:text-gray-600 text-[10px]">✕</button>
                     </div>
 
                     {probeResult.launcher_clicked && (
-                      <p className="text-[10px] text-gray-500 mb-2">Chat launcher clicked: <code className="bg-white dark:bg-gray-900 px-1 rounded">{probeResult.launcher_clicked}</code></p>
+                      <p className="text-[10px] text-gray-500 mb-2">
+                        Chat launcher clicked: <code className="bg-white dark:bg-gray-900 px-1 rounded text-[10px]">{probeResult.launcher_clicked.slice(0, 80)}</code>
+                      </p>
                     )}
 
-                    {probeResult.success && probeResult.candidates && (
-                      <div className="space-y-2 mb-2">
+                    {/* Matched pattern candidates */}
+                    {probeResult.candidates && (["input", "send", "response"] as const).some((c) => (probeResult.candidates![c]?.length ?? 0) > 0) && (
+                      <div className="space-y-2 mb-3">
+                        <p className="text-[10px] font-semibold text-gray-600 dark:text-gray-400 uppercase">Matched selectors</p>
                         {(["input", "send", "response"] as const).map((cat) => {
                           const cands = probeResult.candidates![cat];
                           if (!cands?.length) return null;
                           return (
                             <div key={cat}>
-                              <p className="text-[10px] font-semibold text-gray-600 dark:text-gray-400 uppercase mb-0.5">{cat} candidates</p>
+                              <p className="text-[10px] font-medium text-gray-500 mb-0.5">{cat}</p>
                               <div className="space-y-0.5">
                                 {cands.slice(0, 3).map((c, i) => (
                                   <div key={i} className="flex items-center gap-2 bg-white dark:bg-gray-900 rounded px-2 py-1">
                                     <code className="text-[10px] flex-1 truncate text-violet-700 dark:text-violet-300">{c.selector}</code>
-                                    {c.placeholder && <span className="text-[10px] text-gray-400 shrink-0 truncate max-w-[120px]">"{c.placeholder}"</span>}
-                                    <button
-                                      onClick={() => {
-                                        const key = cat === "input" ? "input_selector" : cat === "send" ? "send_selector" : "response_selector";
-                                        setBrowserAgentForm((f) => ({ ...f, [key]: c.selector }));
-                                      }}
-                                      className="text-[10px] text-violet-600 hover:underline shrink-0"
-                                    >
-                                      Use
-                                    </button>
+                                    {c.placeholder && <span className="text-[10px] text-gray-400 shrink-0 truncate max-w-[100px]">"{c.placeholder}"</span>}
+                                    <button onClick={() => { const key = cat === "input" ? "input_selector" : cat === "send" ? "send_selector" : "response_selector"; setBrowserAgentForm((f) => ({ ...f, [key]: c.selector })); }} className="text-[10px] text-violet-600 hover:underline shrink-0">Use</button>
                                   </div>
                                 ))}
                               </div>
@@ -1136,14 +1145,72 @@ export default function ConnectionsPage() {
                       </div>
                     )}
 
+                    {/* Raw dump — all actual inputs/buttons found in page */}
+                    {probeResult.raw_dump && Object.keys(probeResult.raw_dump).length > 0 && (
+                      <details className="mb-3">
+                        <summary className="text-[10px] font-semibold text-gray-600 dark:text-gray-400 uppercase cursor-pointer mb-1">
+                          Raw page elements (expand to build selectors manually)
+                        </summary>
+                        <div className="space-y-2 mt-1 max-h-64 overflow-y-auto">
+                          {Object.entries(probeResult.raw_dump).map(([label, data]) => (
+                            (data.inputs.length > 0 || data.buttons.length > 0) && (
+                              <div key={label} className="bg-white dark:bg-gray-900 rounded p-2">
+                                <p className="text-[10px] font-medium text-gray-500 mb-1 truncate">
+                                  {data.iframe_sel ? `📦 ${data.iframe_sel}` : "📄 Main page"}
+                                </p>
+                                {data.inputs.map((inp, i) => {
+                                  const ph = inp.attrs.placeholder || inp.attrs["aria-label"] || inp.attrs.name || "";
+                                  const id = inp.attrs.id ? `${inp.tag.toLowerCase()}#${inp.attrs.id}` : null;
+                                  const nameA = inp.attrs.name ? `${inp.tag.toLowerCase()}[name='${inp.attrs.name}']` : null;
+                                  const sel = id || nameA || inp.tag.toLowerCase();
+                                  return (
+                                    <div key={i} className="flex items-center gap-2 py-0.5">
+                                      <code className="text-[10px] flex-1 truncate text-blue-600 dark:text-blue-400">{sel}</code>
+                                      {ph && <span className="text-[10px] text-gray-400 truncate max-w-[100px]">"{ph}"</span>}
+                                      <button onClick={() => setBrowserAgentForm((f) => ({ ...f, input_selector: sel }))} className="text-[10px] text-violet-600 hover:underline shrink-0">→ Input</button>
+                                    </div>
+                                  );
+                                })}
+                                {data.buttons.map((btn, i) => {
+                                  const label2 = btn.attrs["aria-label"] || btn.attrs.title || btn.text || btn.attrs.id || "";
+                                  const id = btn.attrs.id ? `button#${btn.attrs.id}` : null;
+                                  const sel = id || (label2 ? `button[aria-label='${label2}']` : "button");
+                                  if (!label2 && !btn.attrs.id) return null;
+                                  return (
+                                    <div key={i} className="flex items-center gap-2 py-0.5">
+                                      <code className="text-[10px] flex-1 truncate text-green-600 dark:text-green-400">{sel}</code>
+                                      {label2 && <span className="text-[10px] text-gray-400 truncate max-w-[100px]">"{label2}"</span>}
+                                      <button onClick={() => setBrowserAgentForm((f) => ({ ...f, send_selector: sel }))} className="text-[10px] text-violet-600 hover:underline shrink-0">→ Send</button>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )
+                          ))}
+                        </div>
+                      </details>
+                    )}
+
+                    {/* Probe log */}
+                    {probeResult.log && (
+                      <details className="mb-2">
+                        <summary className="text-[10px] text-gray-400 cursor-pointer">Scan log</summary>
+                        <div className="mt-1 font-mono text-[9px] text-gray-500 space-y-0.5">
+                          {probeResult.log.map((l, i) => <p key={i}>{l}</p>)}
+                        </div>
+                      </details>
+                    )}
+
+                    {/* Screenshot */}
                     {probeResult.screenshot_b64 && (
                       <div>
-                        <p className="text-[10px] text-gray-500 mb-1">Screenshot (after opening chat launcher):</p>
+                        <p className="text-[10px] text-gray-500 mb-1">Screenshot:</p>
                         <img src={`data:image/png;base64,${probeResult.screenshot_b64}`} alt="Probe screenshot" className="rounded border border-gray-200 dark:border-gray-700 max-w-full" />
                       </div>
                     )}
                   </div>
-                )}
+                  );
+                })()}
               </div>
             )}
 

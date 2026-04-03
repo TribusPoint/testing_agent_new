@@ -63,9 +63,11 @@ export interface ProbeCandidate {
 }
 export interface ProbeResult {
   success: boolean;
+  found_count?: number;
   url?: string;
   launcher_clicked?: string | null;
   error?: string;
+  log?: string[];
   suggested?: {
     input_selector: string;
     send_selector: string;
@@ -79,6 +81,11 @@ export interface ProbeResult {
     send: ProbeCandidate[];
     response: ProbeCandidate[];
   };
+  raw_dump?: Record<string, {
+    inputs: Array<{ tag: string; attrs: Record<string, string>; rect: { w: number; h: number } }>;
+    buttons: Array<{ tag: string; attrs: Record<string, string>; text: string; rect: { w: number; h: number } }>;
+    iframe_sel: string | null;
+  }>;
   screenshot_b64?: string | null;
 }
 export const probeBrowserUrl = (url: string) =>

@@ -211,13 +211,14 @@ async def probe_page(url: str) -> dict:
     Open *url* in a headless browser and auto-discover chat widget selectors.
 
     Strategy:
-    1. Load the page and wait for JS to settle.
-    2. Try to click common "open chat" launcher buttons.
-    3. Scan the main frame AND any iframes for candidate inputs, send
-       buttons, and response containers.
-    4. Score every candidate by how chat-like it looks.
-    5. Return the top suggestions + a screenshot for visual verification.
+    1. Load page, wait for JS + lazy scripts to settle.
+    2. Scan ALL iframes (chat widgets usually live in iframes).
+    3. Try every launcher pattern; after each click wait and re-scan.
+    4. Also try clicking by position (bottom-right corner) as a fallback.
+    5. Dump every input/button/textarea in each frame for deep inspection.
+    6. Return ranked candidates + screenshot.
     """
+    import base64
     try:
         from playwright.async_api import async_playwright
     except ImportError:
@@ -226,176 +227,278 @@ async def probe_page(url: str) -> dict:
             "error": "Playwright is not installed. Run: pip install playwright && playwright install chromium",
         }
 
-    # ── Pattern libraries ─────────────────────────────────────────────────────
+    # ── Known platform patterns ───────────────────────────────────────────────
 
-    # Selectors tried in order to open a chat launcher before scanning
     LAUNCHER_SELECTORS = [
-        "[id*='chat'][class*='button' i]",
-        "[class*='chat-launcher' i]",
-        "[class*='chat-button' i]",
-        "[class*='launcher' i]",
-        "[aria-label*='chat' i]",
-        "[aria-label*='help' i]",
-        "[title*='chat' i]",
-        "[id*='launcher' i]",
-        "[id*='chat-button' i]",
-        "button[class*='fab' i]",
-        "[data-testid*='chat' i]",
-        # LivePerson
-        "#lpChat .lp-btn-chat",
-        # Salesforce MIAW
+        # Salesforce MIAW / embedded service
         ".embeddedServiceHelpButton button",
+        ".helpButtonEnabled",
+        "[class*='embeddedService' i] button",
+        # LivePerson
+        "#lpChat",
+        "[id*='LP_DIV' i]",
+        ".LPMcontainer",
         # Genesys
         ".cx-widget.cx-webchat-launcher",
+        "[class*='genesys' i][class*='launcher' i]",
         # Intercom
         ".intercom-launcher",
+        "[class*='intercom' i][class*='launcher' i]",
         # Zendesk
         "#launcher",
+        "[data-testid='launcher']",
+        # Nuance (common in healthcare)
+        "[id*='nuance' i]",
+        "[class*='nuance' i][class*='chat' i]",
+        # Generic patterns
+        "[aria-label*='chat' i]",
+        "[aria-label*='live chat' i]",
+        "[aria-label*='help' i]",
+        "[title*='chat' i]",
+        "[id*='chat-button' i]",
+        "[id*='chatButton' i]",
+        "[id*='launcher' i]",
+        "[class*='chat-launcher' i]",
+        "[class*='chat-button' i]",
+        "[class*='chatButton' i]",
+        "[class*='launcher' i]",
+        "button[class*='fab' i]",
+        "[data-testid*='chat' i]",
+        "[data-widget*='chat' i]",
     ]
 
-    # Candidate input selectors scored by specificity
     INPUT_PATTERNS = [
+        # Salesforce MIAW
+        ("input[name='userInput']", 15),
+        (".slds-chat-composer input", 13),
+        ("input[class*='slds'][class*='input' i]", 12),
+        # Genesys
+        ("input.cx-message", 15),
+        ("textarea.cx-message", 15),
+        # LivePerson
+        ("#lp-msga", 15),
+        ("#lpChat input[type='text']", 14),
+        # Intercom
+        (".intercom-composer-input", 15),
+        # Zendesk
+        ("#Embed textarea", 15),
+        ("[data-garden-id='chat.input'] textarea", 13),
+        # Nuance
+        ("[id*='nuance' i] input[type='text']", 13),
+        # Generic chat-like inputs
         ("input[placeholder*='message' i]", 10),
         ("textarea[placeholder*='message' i]", 10),
         ("input[placeholder*='type' i]", 9),
         ("textarea[placeholder*='type' i]", 9),
         ("input[placeholder*='ask' i]", 9),
         ("textarea[placeholder*='ask' i]", 9),
+        ("input[placeholder*='question' i]", 9),
+        ("textarea[placeholder*='question' i]", 9),
         ("input[placeholder*='chat' i]", 8),
         ("textarea[placeholder*='chat' i]", 8),
+        ("input[placeholder*='help' i]", 7),
+        ("textarea[placeholder*='help' i]", 7),
         ("input[id*='message' i]", 7),
         ("textarea[id*='message' i]", 7),
         ("input[id*='chat' i]", 7),
         ("textarea[id*='chat' i]", 7),
-        ("input[id*='input' i]", 6),
-        ("textarea[id*='input' i]", 6),
-        ("input[name*='message' i]", 6),
         ("[contenteditable='true']", 5),
         ("input[class*='message' i]", 5),
         ("textarea[class*='message' i]", 5),
-        ("input[class*='chat' i]", 5),
-        ("textarea[class*='chat' i]", 5),
-        # Salesforce MIAW
-        ("input[name='userInput']", 10),
-        # Genesys
-        ("input.cx-message", 10),
-        # LivePerson
-        ("#lp-msga", 10),
-        # Intercom
-        (".intercom-composer-input", 10),
-        # Zendesk
-        ("#Embed textarea", 10),
     ]
 
     SEND_PATTERNS = [
+        # Salesforce MIAW
+        ("button[title='Send']", 15),
+        (".slds-chat-composer button[type='submit']", 13),
+        # Genesys
+        ("button.cx-send", 15),
+        # LivePerson
+        ("#send_button", 15),
+        # Intercom
+        ("button[data-testid='send-button']", 15),
+        # Zendesk
+        ("#Embed button[type='submit']", 15),
+        # Generic
         ("button[aria-label*='send' i]", 10),
         ("button[title*='send' i]", 10),
         ("[data-testid*='send' i]", 10),
-        ("button[type='submit']", 7),
         ("button[class*='send' i]", 8),
         ("button[id*='send' i]", 8),
-        ("[aria-label*='submit' i]", 7),
-        # Salesforce MIAW
-        ("button[title='Send']", 10),
-        # Genesys
-        ("button.cx-send", 10),
-        # LivePerson
-        ("#send_button", 10),
-        # Intercom
-        ("button[data-testid='send-button']", 10),
-        # Zendesk
-        ("#Embed button[type='submit']", 10),
+        ("button[type='submit']", 6),
+        ("[aria-label*='submit' i]", 6),
     ]
 
     RESPONSE_PATTERNS = [
-        (".slds-chat-listitem_inbound .slds-chat-message__text", 10),  # Salesforce MIAW
-        ("[data-testid='message-text']", 9),  # Intercom
-        (".cx-transcript .agent .cx-message", 9),  # Genesys
+        # Salesforce MIAW
+        (".slds-chat-listitem_inbound .slds-chat-message__text", 15),
+        (".slds-chat-listitem--inbound .slds-chat-message__text", 15),
+        # Intercom
+        ("[data-testid='message-text']", 13),
+        # Genesys
+        (".cx-transcript .agent .cx-message", 13),
+        (".cx-message.agent", 12),
+        # Zendesk
+        ("[data-garden-id='chat.message']", 12),
+        # Generic
         (".bot-message", 8),
         (".assistant-message", 8),
         (".agent-message", 8),
         ("[data-sender='agent']", 8),
         ("[data-role='bot']", 8),
         ("[data-author-type='agent' i]", 7),
-        (".chat-message:not(.user-message)", 6),
         (".message[class*='bot' i]", 6),
         (".message[class*='agent' i]", 6),
-        # Zendesk
-        ("[data-garden-id='chat.message'] [data-garden-id='typography.paragraph']", 9),
-        # LivePerson
-        (".lpview_message_area .agent-avatar ~ .message-content", 7),
     ]
 
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(
             headless=True,
-            args=["--no-sandbox", "--disable-dev-shm-usage"],
+            args=["--no-sandbox", "--disable-dev-shm-usage", "--disable-blink-features=AutomationControlled"],
         )
         context = await browser.new_context(
-            viewport={"width": 1280, "height": 900},
+            viewport={"width": 1440, "height": 900},
             user_agent=(
                 "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/120.0.0.0 Safari/537.36"
+                "Chrome/122.0.0.0 Safari/537.36"
             ),
         )
         page = await context.new_page()
+        log_lines: list[str] = []
 
         try:
+            # ── 1. Load page ──────────────────────────────────────────────
+            log_lines.append(f"Loading {url} …")
             try:
-                await page.goto(url, wait_until="networkidle", timeout=30_000)
+                await page.goto(url, wait_until="networkidle", timeout=35_000)
             except Exception:
-                await page.goto(url, wait_until="domcontentloaded", timeout=20_000)
-                await page.wait_for_timeout(3000)
+                await page.goto(url, wait_until="domcontentloaded", timeout=25_000)
+                await page.wait_for_timeout(4000)
 
-            await page.wait_for_timeout(2000)
+            # Extra wait for lazy-loaded scripts / chat SDKs
+            await page.wait_for_timeout(4000)
+            log_lines.append("Page loaded. Scanning iframes and main frame.")
 
-            # ── Step 1: Try to open the chat launcher ─────────────────────
+            # ── 2. Build frame list (scan ALL iframes first—chat often lives there) ──
+            async def collect_frames():
+                frames = [(page, None, "main")]
+                try:
+                    all_iframes = await page.query_selector_all("iframe")
+                    for el in all_iframes:
+                        try:
+                            f = await el.content_frame()
+                            if not f:
+                                continue
+                            src = await el.get_attribute("src") or ""
+                            id_ = await el.get_attribute("id") or ""
+                            name = await el.get_attribute("name") or ""
+                            cls = await el.get_attribute("class") or ""
+                            title = await el.get_attribute("title") or ""
+                            # Build a useful iframe selector
+                            if id_:
+                                isel = f"iframe#{id_}"
+                            elif name:
+                                isel = f"iframe[name='{name}']"
+                            elif title:
+                                isel = f"iframe[title='{title}']"
+                            else:
+                                isel = "iframe"
+                            label = f"iframe src={src[:60]} id={id_} cls={cls[:40]}"
+                            frames.append((f, isel, label))
+                        except Exception:
+                            pass
+                except Exception:
+                    pass
+                return frames
+
+            frames_to_scan = await collect_frames()
+            log_lines.append(f"Found {len(frames_to_scan)} frames (including main).")
+
+            # ── 3. Try launcher buttons ────────────────────────────────────
             launcher_clicked = None
             for sel in LAUNCHER_SELECTORS:
                 try:
                     el = await page.query_selector(sel)
                     if el and await el.is_visible():
-                        await el.click()
+                        await el.click(timeout=3000)
                         launcher_clicked = sel
-                        await page.wait_for_timeout(2000)
+                        log_lines.append(f"Clicked launcher: {sel}")
+                        await page.wait_for_timeout(3000)
+                        # Re-collect frames after click (new iframes may appear)
+                        frames_to_scan = await collect_frames()
                         break
                 except Exception:
                     pass
 
-            # ── Step 2: Collect all frames (main + iframes) ────────────────
-            frames_to_scan = []  # list of (frame_or_page, iframe_selector_or_None)
-            frames_to_scan.append((page, None))
-
-            iframe_els = await page.query_selector_all("iframe")
-            for iframe_el in iframe_els:
+            # Fallback: click any bottom-right element (chat bubbles are usually there)
+            if not launcher_clicked:
                 try:
-                    frame = await iframe_el.content_frame()
-                    if frame:
-                        # Get a useful selector for this iframe
-                        src = await iframe_el.get_attribute("src") or ""
-                        id_ = await iframe_el.get_attribute("id") or ""
-                        cls = await iframe_el.get_attribute("class") or ""
-                        name = await iframe_el.get_attribute("name") or ""
-                        if id_:
-                            sel = f"iframe#{id_}"
-                        elif name:
-                            sel = f"iframe[name='{name}']"
-                        elif "chat" in src.lower() or "chat" in cls.lower():
-                            sel = f"iframe[src*='{src.split('?')[0].split('/')[-1]}']" if src else "iframe"
-                        else:
-                            sel = None  # not worth tracking
-                        frames_to_scan.append((frame, sel))
+                    clicked_br = await page.evaluate("""() => {
+                        const vw = window.innerWidth, vh = window.innerHeight;
+                        const zone = { x0: vw*0.7, y0: vh*0.7, x1: vw, y1: vh };
+                        const els = document.querySelectorAll('button, [role="button"], div[class*="chat"], div[class*="launcher"]');
+                        for (const el of els) {
+                            const r = el.getBoundingClientRect();
+                            if (r.width > 10 && r.height > 10 &&
+                                r.right > zone.x0 && r.bottom > zone.y0 &&
+                                r.left < zone.x1 && r.top < zone.y1) {
+                                el.click();
+                                return el.outerHTML.slice(0, 120);
+                            }
+                        }
+                        return null;
+                    }""")
+                    if clicked_br:
+                        launcher_clicked = f"[bottom-right element] {clicked_br}"
+                        log_lines.append(f"Clicked bottom-right element: {clicked_br[:80]}")
+                        await page.wait_for_timeout(3000)
+                        frames_to_scan = await collect_frames()
                 except Exception:
                     pass
 
-            # ── Step 3: Scan frames for candidates ─────────────────────────
-            best: dict = {
-                "input": None, "send": None, "response": None, "iframe": None,
-            }
+            # ── 4. Dump all inputs/textareas/buttons in all frames ─────────
+            # This catches things our pattern list misses
+            async def dump_frame_elements(frame, iframe_sel, label):
+                """Return all visible inputs and buttons with their attrs."""
+                found = {"inputs": [], "buttons": []}
+                try:
+                    raw = await frame.evaluate("""() => {
+                        function attrs(el) {
+                            const o = {};
+                            for (const a of el.attributes) o[a.name] = a.value;
+                            return o;
+                        }
+                        const r = { inputs: [], buttons: [] };
+                        for (const el of document.querySelectorAll('input, textarea, [contenteditable="true"]')) {
+                            const rect = el.getBoundingClientRect();
+                            if (rect.width > 10 && rect.height > 10)
+                                r.inputs.push({ tag: el.tagName, attrs: attrs(el), rect: {w: rect.width, h: rect.height} });
+                        }
+                        for (const el of document.querySelectorAll('button, [role="button"]')) {
+                            const rect = el.getBoundingClientRect();
+                            if (rect.width > 5 && rect.height > 5)
+                                r.buttons.push({ tag: el.tagName, attrs: attrs(el), text: el.innerText.trim().slice(0, 40), rect: {w: rect.width, h: rect.height} });
+                        }
+                        return r;
+                    }""")
+                    found["inputs"] = raw.get("inputs", [])[:20]
+                    found["buttons"] = raw.get("buttons", [])[:20]
+                    log_lines.append(f"  {label}: {len(found['inputs'])} inputs, {len(found['buttons'])} buttons")
+                except Exception as e:
+                    log_lines.append(f"  {label}: dump failed — {e}")
+                return found
+
+            all_dumps = {}
+            for frame, iframe_sel, label in frames_to_scan:
+                dump = await dump_frame_elements(frame, iframe_sel, label)
+                all_dumps[label] = {"dump": dump, "iframe_sel": iframe_sel}
+
+            # ── 5. Score candidates using pattern lists ────────────────────
+            best: dict = {"input": None, "send": None, "response": None, "iframe": None}
             all_candidates: dict = {"input": [], "send": [], "response": []}
 
-            for frame, iframe_sel in frames_to_scan:
+            for frame, iframe_sel, label in frames_to_scan:
                 for patterns, category in [
                     (INPUT_PATTERNS, "input"),
                     (SEND_PATTERNS, "send"),
@@ -404,60 +507,118 @@ async def probe_page(url: str) -> dict:
                     for sel, score in patterns:
                         try:
                             els = await frame.query_selector_all(sel)
-                            visible = []
+                            found_any = len(els) > 0
+                            # Count visible ones; but accept hidden too if in iframe
+                            visible_count = 0
                             for el in els:
                                 try:
                                     if await el.is_visible():
-                                        visible.append(el)
+                                        visible_count += 1
                                 except Exception:
                                     pass
-                            if visible:
-                                # Get extra info for display
-                                el = visible[0]
-                                placeholder = ""
-                                text = ""
-                                try:
-                                    placeholder = await el.get_attribute("placeholder") or ""
-                                except Exception:
-                                    pass
-                                try:
-                                    text = (await el.inner_text())[:60] or ""
-                                except Exception:
-                                    pass
-                                candidate = {
-                                    "selector": sel,
-                                    "score": score + (5 if iframe_sel else 0),  # iframe bonus
-                                    "count": len(visible),
-                                    "placeholder": placeholder,
-                                    "text": text.strip(),
-                                    "iframe": iframe_sel,
-                                }
-                                all_candidates[category].append(candidate)
-                                # Update best if higher score
-                                if best[category] is None or candidate["score"] > best[category]["score"]:
-                                    best[category] = candidate
-                                    if iframe_sel:
-                                        best["iframe"] = iframe_sel
+                            effective_count = visible_count or (len(els) if iframe_sel else 0)
+                            if effective_count == 0 and not found_any:
+                                continue
+
+                            el = els[0]
+                            placeholder = ""
+                            text = ""
+                            try:
+                                placeholder = await el.get_attribute("placeholder") or ""
+                            except Exception:
+                                pass
+                            try:
+                                text = (await el.inner_text())[:60]
+                            except Exception:
+                                pass
+
+                            # Bonus for iframe (chat widgets commonly in iframes)
+                            iframe_bonus = 5 if iframe_sel else 0
+                            candidate = {
+                                "selector": sel,
+                                "score": score + iframe_bonus,
+                                "count": effective_count,
+                                "placeholder": placeholder,
+                                "text": text.strip(),
+                                "iframe": iframe_sel,
+                                "frame_label": label,
+                            }
+                            all_candidates[category].append(candidate)
+                            if best[category] is None or candidate["score"] > best[category]["score"]:
+                                best[category] = candidate
+                                if iframe_sel:
+                                    best["iframe"] = iframe_sel
                         except Exception:
                             pass
 
-            # ── Step 4: Screenshot ─────────────────────────────────────────
-            import base64
+            # ── 6. Build "raw dump" candidates from actual page elements ───
+            # Synthesise selectors from the dump for anything the patterns missed
+            for label, data in all_dumps.items():
+                dump = data["dump"]
+                iframe_sel = data["iframe_sel"]
+                for inp in dump["inputs"]:
+                    attrs = inp.get("attrs", {})
+                    # Build a selector from attrs
+                    sel_parts = []
+                    tag = inp["tag"].lower()
+                    for attr in ["id", "name", "class", "placeholder", "aria-label"]:
+                        v = attrs.get(attr, "").strip()
+                        if v and len(v) < 80:
+                            if attr == "id":
+                                sel_parts.append(f"{tag}#{v.split()[0]}")
+                                break
+                            elif attr == "name":
+                                sel_parts.append(f"{tag}[name='{v}']")
+                                break
+                    if not sel_parts:
+                        continue
+                    sel = sel_parts[0]
+                    placeholder = attrs.get("placeholder", "")
+                    # Score based on placeholder content
+                    ph_lower = placeholder.lower()
+                    score = 0
+                    for kw, pts in [("message",9),("type",8),("ask",8),("question",8),("chat",7),("help",6),("search",2)]:
+                        if kw in ph_lower:
+                            score = max(score, pts)
+                    if score == 0:
+                        score = 3  # generic fallback
+                    candidate = {
+                        "selector": sel,
+                        "score": score + (5 if iframe_sel else 0),
+                        "count": 1,
+                        "placeholder": placeholder,
+                        "text": "",
+                        "iframe": iframe_sel,
+                        "frame_label": label,
+                        "raw": True,
+                    }
+                    # Only add if not already in candidates
+                    if not any(c["selector"] == sel for c in all_candidates["input"]):
+                        all_candidates["input"].append(candidate)
+                        if best["input"] is None or candidate["score"] > best["input"]["score"]:
+                            best["input"] = candidate
+                            if iframe_sel:
+                                best["iframe"] = iframe_sel
+
+            # ── 7. Screenshot ──────────────────────────────────────────────
             png = await page.screenshot(type="png", full_page=False)
             screenshot_b64 = base64.b64encode(png).decode()
 
-            # ── Step 5: Build response ─────────────────────────────────────
+            found_count = sum(1 for k in ["input", "send", "response"] if best[k])
+            log_lines.append(f"Done. Found {found_count}/3 selector types.")
+
             suggested = {
                 "input_selector": best["input"]["selector"] if best["input"] else "",
-                "send_selector": best["send"]["selector"] if best["send"] else "Enter",
+                "send_selector": best["send"]["selector"] if best["send"] else "",
                 "response_selector": best["response"]["selector"] if best["response"] else "",
                 "iframe_selector": best["iframe"] or "",
-                "load_wait_ms": 2000,
-                "wait_after_send_ms": 5000,
+                "load_wait_ms": 3000,
+                "wait_after_send_ms": 6000,
             }
 
             return {
                 "success": True,
+                "found_count": found_count,
                 "url": url,
                 "launcher_clicked": launcher_clicked,
                 "suggested": suggested,
@@ -465,11 +626,19 @@ async def probe_page(url: str) -> dict:
                     cat: sorted(cands, key=lambda x: -x["score"])[:5]
                     for cat, cands in all_candidates.items()
                 },
+                "raw_dump": {
+                    label: {
+                        "inputs": data["dump"]["inputs"][:8],
+                        "buttons": data["dump"]["buttons"][:8],
+                        "iframe_sel": data["iframe_sel"],
+                    }
+                    for label, data in all_dumps.items()
+                },
+                "log": log_lines,
                 "screenshot_b64": screenshot_b64,
             }
 
         except Exception as e:
-            import base64
             screenshot_b64 = None
             try:
                 png = await page.screenshot(type="png")
@@ -478,7 +647,9 @@ async def probe_page(url: str) -> dict:
                 pass
             return {
                 "success": False,
+                "found_count": 0,
                 "error": str(e),
+                "log": log_lines,
                 "screenshot_b64": screenshot_b64,
             }
         finally:
