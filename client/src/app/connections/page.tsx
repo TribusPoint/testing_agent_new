@@ -1,0 +1,1223 @@
+"use client";
+import { useState, useEffect, useRef } from "react";
+import * as api from "@/lib/api";
+
+type Msg = { role: "user" | "agent" | "error"; text: string };
+
+const INPUT_CLS =
+  "w-full text-xs px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500";
+
+export default function ConnectionsPage() {
+  const [connections, setConnections] = useState<api.Connection[]>([]);
+  const [selected, setSelected] = useState<api.Connection | null>(null);
+  const [agents, setAgents] = useState<api.Agent[]>([]);
+  const [chatAgent, setChatAgent] = useState<api.Agent | null>(null);
+  const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  const [showForm, setShowForm] = useState(false);
+  const [connType, setConnType] = useState<"salesforce" | "http">("salesforce");
+  const [form, setForm] = useState({ name: "", domain: "", consumer_key: "", consumer_secret: "" });
+  const [httpForm, setHttpForm] = useState({ auth_type: "none", auth_value: "", test_url: "" });
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState<string | null>(null);
+  const [deletingConn, setDeletingConn] = useState(false);
+  const [showEditConn, setShowEditConn] = useState(false);
+  const [editConnForm, setEditConnForm] = useState({ name: "", domain: "", consumer_key: "", consumer_secret: "" });
+  const [savingConn, setSavingConn] = useState(false);
+
+  const [showAgentForm, setShowAgentForm] = useState(false);
+  const [agentForm, setAgentForm] = useState({ salesforce_id: "", name: "", developer_name: "" });
+  const [savingAgent, setSavingAgent] = useState(false);
+
+  // HTTP agent form
+  const [httpAgentForm, setHttpAgentForm] = useState({
+    name: "",
+    endpoint: "",
+    method: "POST",
+    body_template: '{"message": "{{question}}"}',
+    response_path: "",
+    auth_value: "",
+  });
+  const [savingHttpAgent, setSavingHttpAgent] = useState(false);
+  const [showHttpAgentForm, setShowHttpAgentForm] = useState(false);
+
+  // Edit agent
+  const [editingAgent, setEditingAgent] = useState<api.Agent | null>(null);
+  const [editAgentForm, setEditAgentForm] = useState({ salesforce_id: "", name: "", developer_name: "", runtime_url: "" });
+  const [savingEditAgent, setSavingEditAgent] = useState(false);
+
+  // Manual chat
+  const [manualChatAgent, setManualChatAgent] = useState<api.Agent | null>(null);
+  const [manualChatInput, setManualChatInput] = useState("");
+  const [manualChatSession, setManualChatSession] = useState<string | null>(null);
+  const [manualChatMessages, setManualChatMessages] = useState<{ role: "user" | "agent" | "error"; text: string; meta?: string }[]>([]);
+  const [manualChatLoading, setManualChatLoading] = useState(false);
+  const manualChatEndRef = useRef<HTMLDivElement>(null);
+
+  // SOQL diagnostic
+  const [soqlQuery, setSoqlQuery] = useState("SELECT Id, MasterLabel, DeveloperName FROM BotDefinition");
+  const [soqlResult, setSoqlResult] = useState<{ ok: boolean; endpoint?: string; totalSize?: number; records?: Record<string, unknown>[]; error?: unknown } | null>(null);
+  const [runningSoql, setRunningSoql] = useState(false);
+  const [describeResult, setDescribeResult] = useState<{ sobject: string; note?: string; fields: { name: string; label: string; type: string }[] } | null>(null);
+  const [describingObj, setDescribingObj] = useState<string | null>(null);
+
+  // Runtime ID discovery
+  const [discoveringRuntime, setDiscoveringRuntime] = useState(false);
+  const [runtimeResult, setRuntimeResult] = useState<{
+    agents: { id: string; name: string; developer_name: string; source: string }[];
+    errors: string[];
+    instructions: string;
+  } | null>(null);
+
+  // Endpoint discovery
+  const [discoveringEndpoints, setDiscoveringEndpoints] = useState(false);
+  const [endpointResult, setEndpointResult] = useState<{
+    domain: string;
+    probes: { label: string; url: string; status: number; ok: boolean; data: unknown }[];
+  } | null>(null);
+
+  const [messages, setMessages] = useState<Msg[]>([]);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [input, setInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => { loadConnections(); }, []);
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+  useEffect(() => {
+    manualChatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [manualChatMessages]);
+
+  async function loadConnections() {
+    try { setConnections(await api.listConnections()); } catch {}
+  }
+
+  async function selectConnection(c: api.Connection) {
+    setSelected(c);
+    setChatAgent(null);
+    setMessages([]);
+    setSessionId(null);
+    setTestResult(null);
+    try { setAgents(await api.listAgents(c.id)); } catch { setAgents([]); }
+  }
+
+  async function handleSave() {
+    setSaving(true);
+    try {
+      if (connType === "http") {
+        await api.createConnection({
+          connection_type: "http",
+          name: form.name,
+          config: {
+            auth_type: httpForm.auth_type as api.HttpConnectionConfig["auth_type"],
+            auth_value: httpForm.auth_value,
+            test_url: httpForm.test_url,
+          },
+        });
+      } else {
+        await api.createConnection({ connection_type: "salesforce", ...form });
+      }
+      setForm({ name: "", domain: "", consumer_key: "", consumer_secret: "" });
+      setHttpForm({ auth_type: "none", auth_value: "", test_url: "" });
+      setShowForm(false);
+      await loadConnections();
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Failed to save");
+    } finally { setSaving(false); }
+  }
+
+  async function handleSaveHttpAgent() {
+    if (!selected || !httpAgentForm.name.trim() || !httpAgentForm.endpoint.trim()) return;
+    setSavingHttpAgent(true);
+    try {
+      const agent = await api.createAgent(selected.id, {
+        name: httpAgentForm.name.trim(),
+        developer_name: httpAgentForm.name.trim(),
+        agent_type: "http",
+        config: {
+          endpoint: httpAgentForm.endpoint.trim(),
+          method: httpAgentForm.method,
+          body_template: httpAgentForm.body_template,
+          response_path: httpAgentForm.response_path.trim(),
+        },
+      });
+      setAgents((prev) => {
+        const exists = prev.find((a) => a.id === agent.id);
+        return exists ? prev.map((a) => a.id === agent.id ? agent : a) : [...prev, agent];
+      });
+      setShowHttpAgentForm(false);
+      setHttpAgentForm({ name: "", endpoint: "", method: "POST", body_template: '{"message": "{{question}}"}', response_path: "", auth_value: "" });
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Failed to add agent");
+    } finally { setSavingHttpAgent(false); }
+  }
+
+  async function handleTest() {
+    if (!selected) return;
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const r = await api.testConnection(selected.id);
+      setTestResult({
+        ok: r.success,
+        msg: r.success ? `Connected — ${r.agent_count} agent(s) found` : r.message,
+      });
+    } catch (e: unknown) {
+      setTestResult({ ok: false, msg: e instanceof Error ? e.message : "Failed" });
+    } finally { setTesting(false); }
+  }
+
+  async function handleSync() {
+    if (!selected) return;
+    setSyncing(true);
+    setSyncMsg(null);
+    try {
+      const found = await api.syncAgents(selected.id);
+      setAgents(found);
+      if (found.length === 0) {
+        setSyncMsg("No agents discovered automatically. Add one manually below.");
+        setShowAgentForm(true);
+      } else {
+        setSyncMsg(`${found.length} agent(s) synced.`);
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Sync failed";
+      setSyncMsg(msg);
+      setShowAgentForm(true);
+    } finally { setSyncing(false); }
+  }
+
+  async function handleDeleteConn() {
+    if (!selected) return;
+    if (!confirm(`Delete connection "${selected.name}" and all its agents?`)) return;
+    setDeletingConn(true);
+    try {
+      await api.deleteConnection(selected.id);
+      setConnections((prev) => prev.filter((c) => c.id !== selected.id));
+      setSelected(null);
+      setAgents([]);
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Delete failed");
+    } finally { setDeletingConn(false); }
+  }
+
+  function openEditConn() {
+    if (!selected) return;
+    setEditConnForm({ name: selected.name, domain: selected.domain, consumer_key: "", consumer_secret: "" });
+    setShowEditConn(true);
+  }
+
+  async function handleSaveConn() {
+    if (!selected) return;
+    setSavingConn(true);
+    try {
+      const body: Record<string, string> = { name: editConnForm.name, domain: editConnForm.domain };
+      if (editConnForm.consumer_key) body.consumer_key = editConnForm.consumer_key;
+      if (editConnForm.consumer_secret) body.consumer_secret = editConnForm.consumer_secret;
+      const updated = await api.updateConnection(selected.id, body);
+      setConnections((prev) => prev.map((c) => c.id === selected.id ? updated : c));
+      setSelected(updated);
+      setShowEditConn(false);
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Save failed");
+    } finally { setSavingConn(false); }
+  }
+
+  async function handleAddAgent() {
+    if (!selected || !agentForm.salesforce_id.trim() || !agentForm.name.trim()) return;
+    setSavingAgent(true);
+    try {
+      const agent = await api.createAgent(selected.id, {
+        salesforce_id: agentForm.salesforce_id.trim(),
+        name: agentForm.name.trim(),
+        developer_name: agentForm.developer_name.trim() || agentForm.name.trim(),
+        agent_type: "agentforce",
+      });
+      setAgents((prev) => {
+        const exists = prev.find((a) => a.id === agent.id);
+        return exists ? prev.map((a) => a.id === agent.id ? agent : a) : [...prev, agent];
+      });
+      setAgentForm({ salesforce_id: "", name: "", developer_name: "" });
+      setShowAgentForm(false);
+      setSyncMsg(null);
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Failed to add agent");
+    } finally { setSavingAgent(false); }
+  }
+
+  async function selectAgent(a: api.Agent) {
+    if (chatAgent?.id === a.id) return;
+    if (chatAgent && sessionId) {
+      await api.endSession(chatAgent.id, sessionId).catch(() => {});
+    }
+    setChatAgent(a);
+    setMessages([]);
+    setSessionId(null);
+  }
+
+  async function sendMessage() {
+    if (!chatAgent || !input.trim() || chatLoading) return;
+    const text = input.trim();
+    setInput("");
+    setChatLoading(true);
+    setMessages((m) => [...m, { role: "user", text }]);
+    try {
+      const r = await api.chatWithAgent(chatAgent.id, text, sessionId ?? undefined);
+      setSessionId(r.session_id);
+      setMessages((m) => [...m, { role: "agent", text: r.response }]);
+    } catch (e: unknown) {
+      setMessages((m) => [...m, { role: "error", text: e instanceof Error ? e.message : "Error" }]);
+    } finally { setChatLoading(false); }
+  }
+
+  async function handleEndSession() {
+    if (!chatAgent || !sessionId) return;
+    await api.endSession(chatAgent.id, sessionId).catch(() => {});
+    setSessionId(null);
+    setMessages([]);
+  }
+
+  async function handleDescribe(name: string) {
+    if (!selected) return;
+    setDescribingObj(name);
+    setDescribeResult(null);
+    try {
+      const r = await api.describeSObject(selected.id, name);
+      setDescribeResult(r);
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Describe failed");
+    } finally { setDescribingObj(null); }
+  }
+
+  async function handleRunSoql(q?: string) {
+    if (!selected) return;
+    const query = q ?? soqlQuery;
+    if (q) setSoqlQuery(q);
+    setRunningSoql(true);
+    setSoqlResult(null);
+    try {
+      const r = await api.runSoql(selected.id, query);
+      setSoqlResult(r);
+    } catch (e: unknown) {
+      setSoqlResult({ ok: false, error: e instanceof Error ? e.message : "Failed" });
+    } finally { setRunningSoql(false); }
+  }
+
+  function openEditAgent(a: api.Agent) {
+    setEditingAgent(a);
+    setEditAgentForm({
+      salesforce_id: a.salesforce_id,
+      name: a.name,
+      developer_name: a.developer_name,
+      runtime_url: a.runtime_url ?? "",
+    });
+  }
+
+  async function handleSaveAgent() {
+    if (!editingAgent) return;
+    setSavingEditAgent(true);
+    try {
+      const updated = await api.updateAgent(editingAgent.id, {
+        salesforce_id: editAgentForm.salesforce_id.trim(),
+        name: editAgentForm.name.trim(),
+        developer_name: editAgentForm.developer_name.trim() || editAgentForm.name.trim(),
+        runtime_url: editAgentForm.runtime_url.trim() || null,
+      });
+      setAgents((prev) => prev.map((a) => a.id === updated.id ? updated : a));
+      if (chatAgent?.id === updated.id) setChatAgent(updated);
+      if (manualChatAgent?.id === updated.id) setManualChatAgent(updated);
+      setEditingAgent(null);
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Save failed");
+    } finally { setSavingEditAgent(false); }
+  }
+
+  async function handleManualChat() {
+    if (!manualChatAgent || !manualChatInput.trim() || manualChatLoading) return;
+    const text = manualChatInput.trim();
+    setManualChatInput("");
+    setManualChatLoading(true);
+    setManualChatMessages((m) => [...m, { role: "user", text }]);
+    try {
+      const r = await api.manualChat(manualChatAgent.id, text, manualChatSession ?? undefined);
+      setManualChatSession(r.session_id);
+      const meta = r.new_session ? `New session created. Agent ID: ${r.agent_id_used}` : undefined;
+      setManualChatMessages((m) => [...m, { role: "agent", text: r.response, meta }]);
+    } catch (e: unknown) {
+      setManualChatMessages((m) => [...m, {
+        role: "error",
+        text: e instanceof Error ? e.message : "Error",
+      }]);
+    } finally { setManualChatLoading(false); }
+  }
+
+  async function handleDiscoverEndpoints() {
+    if (!selected) return;
+    setDiscoveringEndpoints(true);
+    setEndpointResult(null);
+    try {
+      const r = await api.discoverEndpoints(selected.id);
+      setEndpointResult(r);
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Discovery failed");
+    } finally { setDiscoveringEndpoints(false); }
+  }
+
+  async function handleDiscoverRuntime() {
+    if (!selected) return;
+    setDiscoveringRuntime(true);
+    setRuntimeResult(null);
+    try {
+      const result = await api.discoverRuntimeIds(selected.id);
+      setRuntimeResult(result);
+    } catch (e: unknown) {
+      setRuntimeResult({ agents: [], errors: [e instanceof Error ? e.message : "Discovery failed"], instructions: "" });
+    } finally { setDiscoveringRuntime(false); }
+  }
+
+  const field = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
+    setForm((prev) => ({ ...prev, [k]: e.target.value }));
+
+  return (
+    <div className="flex h-full">
+      {/* Sidebar */}
+      <aside className="w-64 shrink-0 border-r border-gray-200 dark:border-gray-800 flex flex-col bg-white dark:bg-gray-900">
+        <div className="p-4 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between">
+          <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Connections</h2>
+          <button
+            onClick={() => setShowForm((v) => !v)}
+            className="text-xs bg-indigo-600 text-white px-2 py-1 rounded hover:bg-indigo-700"
+          >
+            + Add
+          </button>
+        </div>
+
+        {showForm && (
+          <div className="p-3 border-b border-gray-200 dark:border-gray-800 flex flex-col gap-2">
+            {/* Type selector */}
+            <div className="flex gap-1 p-0.5 bg-gray-100 dark:bg-gray-800 rounded-lg">
+              {(["salesforce", "http"] as const).map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setConnType(t)}
+                  className={`flex-1 text-xs py-1 rounded-md font-medium transition-colors ${connType === t ? "bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm" : "text-gray-500 dark:text-gray-400 hover:text-gray-700"}`}
+                >
+                  {t === "salesforce" ? "⚡ Salesforce" : "🌐 Generic HTTP"}
+                </button>
+              ))}
+            </div>
+
+            <input placeholder="Connection Name" value={form.name} onChange={field("name")} className={INPUT_CLS} />
+
+            {connType === "salesforce" ? (
+              <>
+                <input placeholder="Domain (e.g. org.my.salesforce.com)" value={form.domain} onChange={field("domain")} className={INPUT_CLS} />
+                <input placeholder="Consumer Key" value={form.consumer_key} onChange={field("consumer_key")} className={INPUT_CLS} />
+                <input type="password" placeholder="Consumer Secret" value={form.consumer_secret} onChange={field("consumer_secret")} className={INPUT_CLS} />
+              </>
+            ) : (
+              <>
+                <select value={httpForm.auth_type} onChange={(e) => setHttpForm((f) => ({ ...f, auth_type: e.target.value }))} className={INPUT_CLS}>
+                  <option value="none">No Auth</option>
+                  <option value="bearer">Bearer Token</option>
+                  <option value="api_key">API Key (header)</option>
+                  <option value="basic">Basic Auth</option>
+                </select>
+                {httpForm.auth_type !== "none" && (
+                  <input
+                    placeholder={httpForm.auth_type === "bearer" ? "Token value (without 'Bearer ')" : httpForm.auth_type === "basic" ? "user:password" : "API key value"}
+                    value={httpForm.auth_value}
+                    onChange={(e) => setHttpForm((f) => ({ ...f, auth_value: e.target.value }))}
+                    className={INPUT_CLS}
+                  />
+                )}
+                <input
+                  placeholder="Test URL (optional — used for Test Connection)"
+                  value={httpForm.test_url}
+                  onChange={(e) => setHttpForm((f) => ({ ...f, test_url: e.target.value }))}
+                  className={INPUT_CLS}
+                />
+                <p className="text-[10px] text-gray-400">Add agents after saving to configure individual endpoint URLs.</p>
+              </>
+            )}
+
+            <div className="flex gap-2">
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="flex-1 text-xs bg-indigo-600 text-white py-1.5 rounded hover:bg-indigo-700 disabled:opacity-50"
+              >
+                {saving ? "Saving..." : "Save"}
+              </button>
+              <button
+                onClick={() => setShowForm(false)}
+                className="flex-1 text-xs text-gray-600 dark:text-gray-400 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-1">
+          {connections.map((c) => (
+            <button
+              key={c.id}
+              onClick={() => selectConnection(c)}
+              className={`w-full text-left px-3 py-2 rounded-lg transition-colors ${
+                selected?.id === c.id
+                  ? "bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300"
+                  : "hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300"
+              }`}
+            >
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] shrink-0">{c.connection_type === "http" ? "🌐" : "⚡"}</span>
+                <span className="text-sm font-medium truncate">{c.name}</span>
+              </div>
+              <div className="text-xs text-gray-400 truncate">{c.connection_type === "http" ? "Generic HTTP" : c.domain}</div>
+            </button>
+          ))}
+          {connections.length === 0 && (
+            <p className="text-xs text-gray-400 text-center py-8">No connections yet</p>
+          )}
+        </div>
+      </aside>
+
+      {/* Main */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {selected ? (
+          <>
+            {/* Connection header */}
+            <div className="p-4 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 flex items-center justify-between shrink-0">
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-white">{selected.name}</h3>
+                <p className="text-xs text-gray-400">{selected.domain}</p>
+                {testResult && (
+                  <p className={`text-xs mt-1 ${testResult.ok ? "text-green-600" : "text-red-500"}`}>
+                    {testResult.ok ? "Connected —" : "Failed —"} {testResult.msg}
+                  </p>
+                )}
+                {syncMsg && (
+                  <p className={`text-xs mt-1 ${syncMsg.includes("synced") ? "text-green-600" : "text-amber-500"}`}>
+                    {syncMsg}
+                  </p>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleTest}
+                  disabled={testing}
+                  className="text-xs px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 text-gray-700 dark:text-gray-300"
+                >
+                  {testing ? "Testing..." : "Test Connection"}
+                </button>
+                {selected?.connection_type !== "http" && (
+                  <button
+                    onClick={handleSync}
+                    disabled={syncing}
+                    className="text-xs px-3 py-1.5 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 disabled:opacity-50"
+                  >
+                    {syncing ? "Syncing..." : "Sync Agents"}
+                  </button>
+                )}
+                {selected?.connection_type !== "http" && (
+                  <button
+                    onClick={() => setShowAgentForm((v) => !v)}
+                    className="text-xs px-3 py-1.5 border border-dashed border-gray-400 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-400"
+                  >
+                    + Add Agent
+                  </button>
+                )}
+                <button
+                  onClick={openEditConn}
+                  className="text-xs px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-400"
+                >
+                  Edit
+                </button>
+                <button
+                  onClick={handleDeleteConn}
+                  disabled={deletingConn}
+                  className="text-xs px-3 py-1.5 text-red-500 border border-red-200 dark:border-red-900 rounded-md hover:bg-red-50 dark:hover:bg-red-950/30 disabled:opacity-40"
+                >
+                  {deletingConn ? "Deleting..." : "Delete"}
+                </button>
+              </div>
+            </div>
+
+            {/* Edit connection form */}
+            {showEditConn && (
+              <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-800/50 shrink-0">
+                <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">Edit Connection</p>
+                <div className="flex flex-col gap-2 max-w-md">
+                  <input placeholder="Name" value={editConnForm.name} onChange={(e) => setEditConnForm((f) => ({ ...f, name: e.target.value }))} className={INPUT_CLS} />
+                  <input placeholder="Domain" value={editConnForm.domain} onChange={(e) => setEditConnForm((f) => ({ ...f, domain: e.target.value }))} className={INPUT_CLS} />
+                  <input placeholder="New Consumer Key (leave blank to keep current)" value={editConnForm.consumer_key} onChange={(e) => setEditConnForm((f) => ({ ...f, consumer_key: e.target.value }))} className={INPUT_CLS} />
+                  <input type="password" placeholder="New Consumer Secret (leave blank to keep current)" value={editConnForm.consumer_secret} onChange={(e) => setEditConnForm((f) => ({ ...f, consumer_secret: e.target.value }))} className={INPUT_CLS} />
+                  <div className="flex gap-2">
+                    <button onClick={handleSaveConn} disabled={savingConn} className="text-xs bg-indigo-600 text-white px-4 py-1.5 rounded hover:bg-indigo-700 disabled:opacity-50">
+                      {savingConn ? "Saving..." : "Save"}
+                    </button>
+                    <button onClick={() => setShowEditConn(false)} className="text-xs text-gray-500 px-3 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800">
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Agents */}
+            {agents.length > 0 && (
+              <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shrink-0">
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                  Agents ({agents.length}) — click to chat{selected?.connection_type !== "http" ? ", Edit to fix Salesforce ID" : ""}
+                </p>
+                <div className="flex flex-col gap-1.5">
+                  {agents.map((a) => (
+                    <div key={a.id} className="flex items-center gap-2">
+                      <button
+                        onClick={() => selectAgent(a)}
+                        className={`flex-1 min-w-0 text-left text-xs px-3 py-2 rounded-lg border transition-colors ${
+                          chatAgent?.id === a.id
+                            ? "bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border-indigo-400"
+                            : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:border-indigo-400"
+                        }`}
+                      >
+                        <span className="font-medium">{a.name}</span>
+                        {a.agent_type === "http" ? (
+                          <span className="text-gray-400 ml-2 text-[10px] truncate">{(a.config as api.HttpAgentConfig)?.endpoint ?? ""}</span>
+                        ) : (
+                          <span className="text-gray-400 ml-2 font-mono text-[10px]">{a.salesforce_id}</span>
+                        )}
+                      </button>
+                      <button
+                        onClick={() => openEditAgent(a)}
+                        className="text-xs px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-500 shrink-0"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => { setManualChatAgent(a); setManualChatMessages([]); setManualChatSession(null); setEditingAgent(null); }}
+                        title="Manually send questions one at a time"
+                        className="text-xs px-2 py-1.5 border border-orange-300 dark:border-orange-700 rounded hover:bg-orange-50 dark:hover:bg-orange-900/20 text-orange-600 dark:text-orange-400 shrink-0"
+                      >
+                        Test
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Edit agent form */}
+            {editingAgent && (
+              <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-800 bg-blue-50 dark:bg-blue-950/20 shrink-0">
+                <p className="text-xs font-semibold text-blue-700 dark:text-blue-400 mb-1">
+                  Edit Agent — {editingAgent.name}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
+                  The <strong>Salesforce ID</strong> must be a real Salesforce record ID — 15 or 18 alphanumeric characters
+                  (e.g. <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">0HoXXXXXXXXXXXXXXX</code>).
+                  Use &quot;Auto-Discover&quot; below, or find it in Salesforce Setup → Agents → click your agent → copy ID from URL.
+                </p>
+                <div className="flex flex-col gap-2 max-w-lg">
+                  <input
+                    placeholder="Salesforce Agent ID"
+                    value={editAgentForm.salesforce_id}
+                    onChange={(e) => setEditAgentForm((f) => ({ ...f, salesforce_id: e.target.value }))}
+                    className={INPUT_CLS}
+                  />
+                  <input
+                    placeholder="Display Name"
+                    value={editAgentForm.name}
+                    onChange={(e) => setEditAgentForm((f) => ({ ...f, name: e.target.value }))}
+                    className={INPUT_CLS}
+                  />
+                  <input
+                    placeholder="Developer Name (optional)"
+                    value={editAgentForm.developer_name}
+                    onChange={(e) => setEditAgentForm((f) => ({ ...f, developer_name: e.target.value }))}
+                    className={INPUT_CLS}
+                  />
+                  <div>
+                    <label className="text-[10px] text-gray-500 dark:text-gray-400 block mb-0.5">
+                      Custom Runtime URL (optional) — override the auto-detected session endpoint
+                    </label>
+                    <input
+                      placeholder="https://your-org.my.salesforce.com/einstein/ai-agent/v1/agents/YOUR_ID"
+                      value={editAgentForm.runtime_url}
+                      onChange={(e) => setEditAgentForm((f) => ({ ...f, runtime_url: e.target.value }))}
+                      className={INPUT_CLS}
+                    />
+                    <p className="text-[10px] text-gray-400 mt-0.5">
+                      Leave blank to auto-detect. If the agent returns 404, paste the exact base URL here (up to but not including <code>/sessions</code>).
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleSaveAgent}
+                      disabled={savingEditAgent}
+                      className="text-xs bg-blue-600 text-white px-4 py-1.5 rounded hover:bg-blue-700 disabled:opacity-50"
+                    >
+                      {savingEditAgent ? "Saving..." : "Save Agent"}
+                    </button>
+                    <button
+                      onClick={() => { setManualChatAgent(editingAgent); setManualChatMessages([]); setManualChatSession(null); setEditingAgent(null); }}
+                      className="text-xs bg-orange-600 text-white px-3 py-1.5 rounded hover:bg-orange-700"
+                    >
+                      Manual Chat Test
+                    </button>
+                    <button
+                      onClick={() => setEditingAgent(null)}
+                      className="text-xs text-gray-500 px-3 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Manual Chat Test Panel */}
+            {manualChatAgent && (
+              <div className="px-4 py-3 border-b border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-950/20 shrink-0">
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <p className="text-xs font-semibold text-orange-700 dark:text-orange-400">
+                      Manual Chat Test — {manualChatAgent.name}
+                    </p>
+                    <p className="text-[10px] text-gray-500 dark:text-gray-400">
+                      Send questions one at a time to verify the agent is reachable.
+                      {manualChatAgent.runtime_url && (
+                        <span className="ml-1 text-green-600 dark:text-green-400">Custom URL set ✓</span>
+                      )}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => { setManualChatAgent(null); setManualChatSession(null); setManualChatMessages([]); }}
+                    className="text-xs text-gray-400 hover:text-gray-600 ml-2"
+                  >✕ Close</button>
+                </div>
+
+                {/* Message history */}
+                {manualChatMessages.length > 0 && (
+                  <div className="max-h-48 overflow-y-auto bg-white dark:bg-gray-900 rounded border border-orange-200 dark:border-orange-800 p-2 mb-2 space-y-2">
+                    {manualChatMessages.map((m, i) => (
+                      <div key={i} className={`text-xs ${m.role === "user" ? "text-indigo-700 dark:text-indigo-300" : m.role === "error" ? "text-red-600 dark:text-red-400" : "text-gray-800 dark:text-gray-200"}`}>
+                        <span className="font-medium mr-1">{m.role === "user" ? "You:" : m.role === "error" ? "Error:" : "Agent:"}</span>
+                        <span className="whitespace-pre-wrap">{m.text}</span>
+                        {m.meta && <p className="text-[10px] text-green-600 dark:text-green-400 mt-0.5">{m.meta}</p>}
+                      </div>
+                    ))}
+                    <div ref={manualChatEndRef} />
+                  </div>
+                )}
+
+                {/* Input */}
+                <div className="flex gap-2">
+                  <input
+                    value={manualChatInput}
+                    onChange={(e) => setManualChatInput(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleManualChat(); } }}
+                    placeholder="Type your question and press Enter…"
+                    disabled={manualChatLoading}
+                    className={INPUT_CLS + " flex-1"}
+                  />
+                  <button
+                    onClick={handleManualChat}
+                    disabled={manualChatLoading || !manualChatInput.trim()}
+                    className="text-xs bg-orange-600 text-white px-4 py-1.5 rounded hover:bg-orange-700 disabled:opacity-50 shrink-0"
+                  >
+                    {manualChatLoading ? "Sending…" : "Send"}
+                  </button>
+                  {manualChatSession && (
+                    <button
+                      onClick={() => { setManualChatSession(null); setManualChatMessages([]); }}
+                      className="text-xs text-gray-500 px-2 py-1.5 rounded border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800 shrink-0"
+                      title="Start a new session"
+                    >
+                      New Session
+                    </button>
+                  )}
+                </div>
+
+                {!manualChatAgent.runtime_url && (
+                  <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-1">
+                    No custom runtime URL set. If this fails with 404, click <strong>Edit</strong> on the agent and paste the correct URL in the &quot;Custom Runtime URL&quot; field.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Endpoint Discovery */}
+            <div className="px-4 py-3 border-b border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/20 shrink-0">
+              <div className="flex items-center gap-3 mb-1">
+                <span className="text-xs font-semibold text-red-700 dark:text-red-400">Diagnose — Discover Available Endpoints</span>
+                <button
+                  onClick={handleDiscoverEndpoints}
+                  disabled={discoveringEndpoints}
+                  className="text-xs px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+                >
+                  {discoveringEndpoints ? "Probing…" : "Run Diagnostic"}
+                </button>
+                {endpointResult && (
+                  <button onClick={() => setEndpointResult(null)} className="text-xs text-gray-400 hover:text-gray-600">✕ Clear</button>
+                )}
+              </div>
+              <p className="text-[10px] text-gray-500 dark:text-gray-400 mb-2">
+                Probes every known Salesforce AgentForce API path to find which one works on this org.
+              </p>
+
+              {endpointResult && (
+                <div className="space-y-1 max-h-64 overflow-y-auto">
+                  {endpointResult.probes.map((p, i) => (
+                    <div key={i} className={`rounded px-2 py-1.5 text-[10px] font-mono border ${p.ok ? "bg-green-50 dark:bg-green-950/30 border-green-300 dark:border-green-700" : "bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700"}`}>
+                      <div className="flex items-center gap-2">
+                        <span className={`font-bold ${p.ok ? "text-green-700 dark:text-green-400" : p.status === 0 ? "text-gray-400" : p.status === 404 ? "text-orange-600 dark:text-orange-400" : "text-red-600 dark:text-red-400"}`}>
+                          {p.status === 0 ? "ERR" : p.status}
+                        </span>
+                        <span className={`font-medium ${p.ok ? "text-green-800 dark:text-green-300" : "text-gray-600 dark:text-gray-400"}`}>{p.label}</span>
+                      </div>
+                      {p.ok && (
+                        <div className="mt-0.5 text-green-700 dark:text-green-300 whitespace-pre-wrap break-all">
+                          {typeof p.data === "string" ? p.data : JSON.stringify(p.data).slice(0, 400)}
+                        </div>
+                      )}
+                      {!p.ok && p.status !== 0 && (
+                        <div className="text-gray-400 break-all truncate">
+                          {typeof p.data === "string" ? p.data : JSON.stringify(p.data).slice(0, 200)}
+                        </div>
+                      )}
+                      <div className="text-gray-300 dark:text-gray-600 truncate">{p.url}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Runtime ID Discovery */}
+            <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shrink-0">
+              <div className="flex items-center gap-3 mb-1">
+                <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Find correct Agent ID</span>
+                <button
+                  onClick={handleDiscoverRuntime}
+                  disabled={discoveringRuntime}
+                  className="text-xs px-3 py-1 bg-emerald-600 text-white rounded hover:bg-emerald-700 disabled:opacity-50"
+                >
+                  {discoveringRuntime ? "Searching…" : "Auto-Discover"}
+                </button>
+              </div>
+
+              {runtimeResult && (
+                <div className="mt-2 flex flex-col gap-2">
+                  {runtimeResult.agents.length > 0 ? (
+                    <div className="flex flex-col gap-1">
+                      {runtimeResult.agents.map((r, i) => (
+                        <div key={i} className="flex items-center gap-2 bg-emerald-50 dark:bg-emerald-950/30 px-3 py-1.5 rounded text-xs">
+                          <div className="flex-1 min-w-0">
+                            <span className="font-medium text-emerald-800 dark:text-emerald-300">{r.name}</span>
+                            <code className="font-mono text-emerald-700 dark:text-emerald-400 ml-2">{r.id}</code>
+                            <span className="text-gray-400 ml-1">({r.source})</span>
+                          </div>
+                          <button
+                            onClick={() => {
+                              const agent = agents.find((a) => a.name === r.name);
+                              if (agent) openEditAgent({ ...agent, salesforce_id: r.id });
+                              else {
+                                setEditAgentForm({ salesforce_id: r.id, name: r.name, developer_name: r.developer_name, runtime_url: "" });
+                                setShowAgentForm(true);
+                              }
+                            }}
+                            className="text-emerald-700 dark:text-emerald-400 underline hover:no-underline shrink-0"
+                          >
+                            Use this ID
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-800 rounded p-3">
+                      <p className="text-xs font-semibold text-amber-700 dark:text-amber-400 mb-1">No agents found automatically</p>
+                      <p className="text-xs text-amber-700 dark:text-amber-400 mb-2">{runtimeResult.instructions}</p>
+                      <div className="bg-white dark:bg-gray-900 rounded p-2 text-xs text-gray-700 dark:text-gray-300 font-mono border border-gray-200 dark:border-gray-700 space-y-0.5">
+                        <p>1. Open: <strong>Salesforce Setup</strong></p>
+                        <p>2. Quick Find: type <strong>Agents</strong></p>
+                        <p>3. Click your agent → copy the <strong>18-char ID</strong> from the URL</p>
+                        <p className="text-gray-400">   URL looks like: .../0HoXXXXXXXXXXXXXXX/view</p>
+                        <p>4. Click <strong>Edit</strong> next to the agent above and paste it</p>
+                      </div>
+                      {runtimeResult.errors.length > 0 && (
+                        <details className="mt-2">
+                          <summary className="text-xs text-gray-400 cursor-pointer">Show discovery errors</summary>
+                          <div className="mt-1 space-y-0.5">
+                            {runtimeResult.errors.map((e, i) => (
+                              <p key={i} className="text-xs text-red-400 font-mono truncate">{e}</p>
+                            ))}
+                          </div>
+                        </details>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {!runtimeResult && (
+                <p className="text-xs text-gray-400 mt-1">
+                  Tries all known Salesforce APIs. If none work, use the manual steps below.
+                </p>
+              )}
+            </div>
+
+            {/* HTTP Agent form — shown for HTTP connections */}
+            {selected?.connection_type === "http" && (
+              <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shrink-0">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">🌐 HTTP Agents</span>
+                  <button
+                    onClick={() => setShowHttpAgentForm((v) => !v)}
+                    className="text-xs bg-indigo-600 text-white px-2 py-1 rounded hover:bg-indigo-700"
+                  >
+                    + Add Endpoint
+                  </button>
+                </div>
+
+                {showHttpAgentForm && (
+                  <div className="bg-indigo-50 dark:bg-indigo-950/20 rounded p-3 mb-2 flex flex-col gap-2">
+                    <p className="text-[10px] text-gray-500 dark:text-gray-400">
+                      Configure one endpoint per agent. Use <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">{"{{question}}"}</code> in the body template as the placeholder for the question text.
+                    </p>
+                    <input placeholder="Agent Name (e.g. Phoenix Chat)" value={httpAgentForm.name} onChange={(e) => setHttpAgentForm((f) => ({ ...f, name: e.target.value }))} className={INPUT_CLS} />
+                    <input placeholder="Endpoint URL (e.g. https://api.example.com/chat)" value={httpAgentForm.endpoint} onChange={(e) => setHttpAgentForm((f) => ({ ...f, endpoint: e.target.value }))} className={INPUT_CLS} />
+                    <div className="flex gap-2">
+                      <select value={httpAgentForm.method} onChange={(e) => setHttpAgentForm((f) => ({ ...f, method: e.target.value }))} className={INPUT_CLS + " w-24"}>
+                        <option>POST</option><option>GET</option><option>PUT</option>
+                      </select>
+                      <input placeholder="Response path (e.g. reply.text or choices.0.message.content)" value={httpAgentForm.response_path} onChange={(e) => setHttpAgentForm((f) => ({ ...f, response_path: e.target.value }))} className={INPUT_CLS + " flex-1"} />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-gray-500 dark:text-gray-400 block mb-0.5">Request Body Template</label>
+                      <textarea
+                        rows={3}
+                        value={httpAgentForm.body_template}
+                        onChange={(e) => setHttpAgentForm((f) => ({ ...f, body_template: e.target.value }))}
+                        className={INPUT_CLS + " font-mono text-[10px] resize-y"}
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <button onClick={handleSaveHttpAgent} disabled={savingHttpAgent || !httpAgentForm.name.trim() || !httpAgentForm.endpoint.trim()} className="text-xs bg-indigo-600 text-white px-4 py-1.5 rounded hover:bg-indigo-700 disabled:opacity-50">
+                        {savingHttpAgent ? "Saving..." : "Save Agent"}
+                      </button>
+                      <button onClick={() => setShowHttpAgentForm(false)} className="text-xs text-gray-500 px-3 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800">Cancel</button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Common response path examples */}
+                <div className="text-[10px] text-gray-400 space-y-0.5">
+                  <p className="font-medium text-gray-500 dark:text-gray-400">Common response paths:</p>
+                  {[
+                    ["OpenAI Chat", "choices.0.message.content"],
+                    ["Simple reply", "reply"],
+                    ["Nested text", "data.response.text"],
+                    ["Array first", "messages.0.text"],
+                  ].map(([label, path]) => (
+                    <p key={label} className="font-mono">
+                      <span className="text-gray-400">{label}:</span>{" "}
+                      <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">{path}</code>
+                    </p>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Manual agent add form — Salesforce only */}
+            {showAgentForm && selected?.connection_type !== "http" && (
+              <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-800 bg-amber-50 dark:bg-amber-950/20 shrink-0">
+                <p className="text-xs font-medium text-amber-700 dark:text-amber-400 mb-2">
+                  Add Agent Manually
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                  Find the Agent ID in Salesforce Setup → Agents → select your agent → copy the ID from the URL or record detail.
+                </p>
+                <div className="flex flex-col gap-2 max-w-md">
+                  <input
+                    placeholder="Salesforce Agent ID (e.g. 0Xx...)"
+                    value={agentForm.salesforce_id}
+                    onChange={(e) => setAgentForm((f) => ({ ...f, salesforce_id: e.target.value }))}
+                    className={INPUT_CLS}
+                  />
+                  <input
+                    placeholder="Display Name (e.g. My AgentForce Bot)"
+                    value={agentForm.name}
+                    onChange={(e) => setAgentForm((f) => ({ ...f, name: e.target.value }))}
+                    className={INPUT_CLS}
+                  />
+                  <input
+                    placeholder="Developer Name (optional)"
+                    value={agentForm.developer_name}
+                    onChange={(e) => setAgentForm((f) => ({ ...f, developer_name: e.target.value }))}
+                    className={INPUT_CLS}
+                  />
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleAddAgent}
+                      disabled={savingAgent || !agentForm.salesforce_id.trim() || !agentForm.name.trim()}
+                      className="text-xs bg-indigo-600 text-white px-4 py-1.5 rounded hover:bg-indigo-700 disabled:opacity-50"
+                    >
+                      {savingAgent ? "Saving..." : "Save Agent"}
+                    </button>
+                    <button
+                      onClick={() => { setShowAgentForm(false); setSyncMsg(null); }}
+                      className="text-xs text-gray-500 px-3 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* SOQL Diagnostic — Salesforce only */}
+            {selected?.connection_type !== "http" && <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/50 shrink-0">
+              <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">
+                SOQL Query — inspect your Salesforce org directly
+              </p>
+              <div className="flex gap-2 mb-2">
+                <input
+                  value={soqlQuery}
+                  onChange={(e) => setSoqlQuery(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") handleRunSoql(); }}
+                  className="flex-1 text-xs font-mono px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                />
+                <button
+                  onClick={() => handleRunSoql()}
+                  disabled={runningSoql}
+                  className="text-xs px-3 py-1.5 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50 shrink-0"
+                >
+                  {runningSoql ? "Running…" : "Run"}
+                </button>
+              </div>
+
+              {/* Describe buttons */}
+              <div className="flex flex-wrap gap-1 mb-2">
+                <span className="text-[10px] text-gray-400 self-center">Describe fields:</span>
+                {["BotDefinition", "GenAiPlanner", "BotVersion"].map((obj) => (
+                  <button
+                    key={obj}
+                    onClick={() => handleDescribe(obj)}
+                    disabled={describingObj === obj}
+                    className="text-[10px] px-2 py-0.5 rounded bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 hover:bg-purple-200 dark:hover:bg-purple-800/40 disabled:opacity-40"
+                  >
+                    {describingObj === obj ? "…" : obj}
+                  </button>
+                ))}
+              </div>
+
+              {describeResult && (
+                <div className="mb-2 bg-purple-50 dark:bg-purple-950/20 rounded p-2">
+                  <p className="text-xs font-medium text-purple-700 dark:text-purple-300 mb-1">
+                    {describeResult.sobject} fields ({describeResult.fields.length}){describeResult.note ? ` — ${describeResult.note}` : ""}:
+                  </p>
+                  <div className="flex flex-wrap gap-1 max-h-24 overflow-y-auto">
+                    {describeResult.fields.map((f) => (
+                      <span key={f.name} className="text-[10px] font-mono bg-white dark:bg-gray-800 border border-purple-200 dark:border-purple-800 px-1.5 py-0.5 rounded text-gray-700 dark:text-gray-300 cursor-pointer hover:bg-purple-100 dark:hover:bg-purple-900/30"
+                        title={`${f.label} (${f.type})`}
+                        onClick={() => setSoqlQuery(`SELECT Id, MasterLabel, DeveloperName, ${f.name} FROM ${describeResult.sobject}`)}
+                      >
+                        {f.name}
+                      </span>
+                    ))}
+                  </div>
+                  <p className="text-[10px] text-gray-400 mt-1">Click any field name to add it to the SOQL query</p>
+                </div>
+              )}
+
+              {/* Quick queries */}
+              <div className="flex flex-wrap gap-1 mb-2">
+                {[
+                  ["BotDefinition", "SELECT Id,MasterLabel,DeveloperName FROM BotDefinition"],
+                  ["GenAiPlanner", "SELECT Id,MasterLabel,DeveloperName FROM GenAiPlanner"],
+                  ["BotVersion", "SELECT Id,MasterLabel,DeveloperName FROM BotVersion"],
+                  ["AiAgent", "SELECT Id,MasterLabel,DeveloperName FROM AiAgent"],
+                  ["Who am I?", "SELECT Id,Username,Name FROM User LIMIT 1"],
+                ].map(([label, q]) => (
+                  <button
+                    key={label}
+                    onClick={() => handleRunSoql(q)}
+                    disabled={runningSoql}
+                    className="text-[10px] px-2 py-0.5 rounded bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/40 disabled:opacity-40"
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {soqlResult && (
+                <div className="mt-1">
+                  {soqlResult.ok ? (
+                    <div>
+                      <p className="text-xs text-green-600 dark:text-green-400 mb-1">
+                        {soqlResult.totalSize} record(s) found — via {soqlResult.endpoint?.split("/").slice(-2).join("/")}
+                      </p>
+                      {soqlResult.totalSize === 0 ? (
+                        <p className="text-xs text-amber-500">
+                          This object type has no records in your org. Try a different query.
+                        </p>
+                      ) : (
+                        <div className="overflow-x-auto">
+                          <table className="text-xs w-full border-collapse">
+                            <thead>
+                              <tr className="bg-gray-100 dark:bg-gray-800">
+                                {Object.keys(soqlResult.records![0]).filter(k => k !== "attributes").map(k => (
+                                  <th key={k} className="px-2 py-1 text-left text-gray-600 dark:text-gray-400 font-medium border border-gray-200 dark:border-gray-700">{k}</th>
+                                ))}
+                                <th className="px-2 py-1 text-gray-600 dark:text-gray-400 font-medium border border-gray-200 dark:border-gray-700"></th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {soqlResult.records!.map((row, i) => (
+                                <tr key={i} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                                  {Object.entries(row).filter(([k]) => k !== "attributes").map(([k, v]) => (
+                                    <td key={k} className="px-2 py-1 border border-gray-200 dark:border-gray-700 font-mono text-gray-700 dark:text-gray-300">
+                                      {String(v ?? "")}
+                                    </td>
+                                  ))}
+                                  <td className="px-2 py-1 border border-gray-200 dark:border-gray-700">
+                                    {row.Id as React.ReactNode && (
+                                      <div className="flex flex-col gap-0.5">
+                                        {/* Update an existing saved agent with this ID */}
+                                        {agents.map(a => (
+                                          <button
+                                            key={a.id}
+                                            onClick={() => openEditAgent({ ...a, salesforce_id: String(row.Id) })}
+                                            className="text-blue-600 dark:text-blue-400 underline hover:no-underline text-[10px] text-left"
+                                          >
+                                            Update &quot;{a.name}&quot;
+                                          </button>
+                                        ))}
+                                        {/* Add as a brand-new agent */}
+                                        <button
+                                          onClick={() => {
+                                            const name = String(row.MasterLabel ?? row.DeveloperName ?? "Agent");
+                                            const devName = String(row.DeveloperName ?? "");
+                                            setAgentForm({ salesforce_id: String(row.Id), name, developer_name: devName });
+                                            setShowAgentForm(true);
+                                          }}
+                                          className="text-indigo-600 dark:text-indigo-400 underline hover:no-underline text-[10px] text-left"
+                                        >
+                                          + Add new
+                                        </button>
+                                      </div>
+                                    )}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-red-500">
+                      Error: {typeof soqlResult.error === "string" ? soqlResult.error : JSON.stringify(soqlResult.error)}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>}
+
+            {/* Chat */}
+            {chatAgent ? (
+              <div className="flex-1 flex flex-col min-h-0">
+                <div className="px-4 py-2 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/50 flex items-center justify-between shrink-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-medium text-gray-700 dark:text-gray-300">
+                      Chat: {chatAgent.name}
+                    </span>
+                    {sessionId && (
+                      <span className="text-xs text-green-500">Session active</span>
+                    )}
+                  </div>
+                  {sessionId && (
+                    <button
+                      onClick={handleEndSession}
+                      className="text-xs text-red-500 hover:text-red-700"
+                    >
+                      End Session
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
+                  {messages.length === 0 && (
+                    <p className="text-sm text-gray-400 text-center mt-8">
+                      Send a message to start a session
+                    </p>
+                  )}
+                  {messages.map((m, i) => (
+                    <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}>
+                      <div
+                        className={`max-w-[75%] px-3 py-2 rounded-xl text-sm leading-relaxed ${
+                          m.role === "user"
+                            ? "bg-indigo-600 text-white"
+                            : m.role === "error"
+                            ? "bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300 border border-red-200 dark:border-red-800"
+                            : "bg-white dark:bg-gray-800 text-gray-900 dark:text-white border border-gray-200 dark:border-gray-700"
+                        }`}
+                      >
+                        {m.text}
+                      </div>
+                    </div>
+                  ))}
+                  {chatLoading && (
+                    <div className="flex justify-start">
+                      <div className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 px-3 py-2 rounded-xl text-sm text-gray-400">
+                        Thinking...
+                      </div>
+                    </div>
+                  )}
+                  <div ref={chatEndRef} />
+                </div>
+
+                <div className="p-4 border-t border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 flex gap-2 shrink-0">
+                  <input
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        sendMessage();
+                      }
+                    }}
+                    placeholder="Type a message... (Enter to send)"
+                    className="flex-1 text-sm px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  />
+                  <button
+                    onClick={sendMessage}
+                    disabled={chatLoading || !input.trim()}
+                    className="text-sm px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+                  >
+                    Send
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex-1 flex items-center justify-center text-sm text-gray-400">
+                {agents.length > 0
+                  ? "Select an agent above to start chatting"
+                  : "Click Sync Agents to load agents from Salesforce"}
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="flex-1 flex items-center justify-center text-sm text-gray-400">
+            Select a connection from the left panel
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
