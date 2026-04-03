@@ -4,3 +4,22 @@ dist/
 .env*.local
 .env.production
 *.tsbuildinfo
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Secrets — never commit .env files
+.env
+server/.env
+**/.env
+
+# Alembic generated (keep versions, skip cache)
+server/alembic/__pycache__/
+
+# OS
+.DS_Store
