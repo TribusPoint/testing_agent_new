@@ -74,7 +74,7 @@ export const syncAgents = (connId: string) =>
   req<Agent[]>(`/api/connections/${connId}/agents/sync`, { method: "POST", body: "{}" });
 export const createAgent = (
   connId: string,
-  body: { salesforce_id?: string; name: string; developer_name?: string; agent_type?: string; config?: HttpAgentConfig | null }
+  body: { salesforce_id?: string; name: string; developer_name?: string; agent_type?: string; config?: HttpAgentConfig | BrowserAgentConfig | null }
 ) =>
   req<Agent>(`/api/connections/${connId}/agents`, {
     method: "POST",
@@ -224,6 +224,17 @@ export interface HttpAgentConfig {
   extra_headers?: Record<string, string>;
 }
 
+export interface BrowserAgentConfig {
+  url: string;
+  input_selector: string;
+  send_selector: string;
+  response_selector: string;
+  iframe_selector?: string;
+  load_wait_ms?: number;
+  wait_after_send_ms?: number;
+  clear_input?: boolean;
+}
+
 export interface Connection {
   id: string;
   connection_type: string;  // "salesforce" | "http"
@@ -254,7 +265,7 @@ export interface Agent {
   developer_name: string;
   agent_type: string;
   runtime_url: string | null;
-  config: HttpAgentConfig | null;
+  config: HttpAgentConfig | BrowserAgentConfig | null;
   topics: { id: string; name: string; description: string }[];
   actions: { id: string; name: string }[];
   created_at: string;

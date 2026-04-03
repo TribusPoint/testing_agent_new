@@ -15,7 +15,7 @@ export default function ConnectionsPage() {
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
 
   const [showForm, setShowForm] = useState(false);
-  const [connType, setConnType] = useState<"salesforce" | "http">("salesforce");
+  const [connType, setConnType] = useState<"salesforce" | "http" | "browser">("salesforce");
   const [form, setForm] = useState({ name: "", domain: "", consumer_key: "", consumer_secret: "" });
   const [httpForm, setHttpForm] = useState({ auth_type: "none", auth_value: "", test_url: "" });
   const [saving, setSaving] = useState(false);
@@ -42,6 +42,22 @@ export default function ConnectionsPage() {
   });
   const [savingHttpAgent, setSavingHttpAgent] = useState(false);
   const [showHttpAgentForm, setShowHttpAgentForm] = useState(false);
+
+  // Browser agent form
+  const [browserAgentForm, setBrowserAgentForm] = useState({
+    name: "",
+    url: "",
+    input_selector: "",
+    send_selector: "",
+    response_selector: "",
+    iframe_selector: "",
+    wait_after_send_ms: "5000",
+    load_wait_ms: "2000",
+  });
+  const [savingBrowserAgent, setSavingBrowserAgent] = useState(false);
+  const [showBrowserAgentForm, setShowBrowserAgentForm] = useState(false);
+  const [screenshotResult, setScreenshotResult] = useState<{ success: boolean; message: string; screenshot_b64?: string | null } | null>(null);
+  const [takingScreenshot, setTakingScreenshot] = useState(false);
 
   // Edit agent
   const [editingAgent, setEditingAgent] = useState<api.Agent | null>(null);
@@ -118,6 +134,11 @@ export default function ConnectionsPage() {
             test_url: httpForm.test_url,
           },
         });
+      } else if (connType === "browser") {
+        await api.createConnection({
+          connection_type: "browser",
+          name: form.name,
+        });
       } else {
         await api.createConnection({ connection_type: "salesforce", ...form });
       }
@@ -154,6 +175,47 @@ export default function ConnectionsPage() {
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : "Failed to add agent");
     } finally { setSavingHttpAgent(false); }
+  }
+
+  async function handleSaveBrowserAgent() {
+    if (!selected || !browserAgentForm.name.trim() || !browserAgentForm.url.trim()) return;
+    setSavingBrowserAgent(true);
+    try {
+      const agent = await api.createAgent(selected.id, {
+        name: browserAgentForm.name.trim(),
+        developer_name: browserAgentForm.name.trim(),
+        agent_type: "browser",
+        config: {
+          url: browserAgentForm.url.trim(),
+          input_selector: browserAgentForm.input_selector.trim(),
+          send_selector: browserAgentForm.send_selector.trim(),
+          response_selector: browserAgentForm.response_selector.trim(),
+          iframe_selector: browserAgentForm.iframe_selector.trim() || undefined,
+          wait_after_send_ms: parseInt(browserAgentForm.wait_after_send_ms) || 5000,
+          load_wait_ms: parseInt(browserAgentForm.load_wait_ms) || 2000,
+        },
+      });
+      setAgents((prev) => {
+        const exists = prev.find((a) => a.id === agent.id);
+        return exists ? prev.map((a) => a.id === agent.id ? agent : a) : [...prev, agent];
+      });
+      setShowBrowserAgentForm(false);
+      setBrowserAgentForm({ name: "", url: "", input_selector: "", send_selector: "", response_selector: "", iframe_selector: "", wait_after_send_ms: "5000", load_wait_ms: "2000" });
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Failed to add agent");
+    } finally { setSavingBrowserAgent(false); }
+  }
+
+  async function handleScreenshot(agentId: string) {
+    setTakingScreenshot(true);
+    setScreenshotResult(null);
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080"}/api/agents/${agentId}/screenshot`);
+      const data = await res.json();
+      setScreenshotResult(data);
+    } catch (e: unknown) {
+      setScreenshotResult({ success: false, message: e instanceof Error ? e.message : "Failed" });
+    } finally { setTakingScreenshot(false); }
   }
 
   async function handleTest() {
@@ -400,13 +462,13 @@ export default function ConnectionsPage() {
           <div className="p-3 border-b border-gray-200 dark:border-gray-800 flex flex-col gap-2">
             {/* Type selector */}
             <div className="flex gap-1 p-0.5 bg-gray-100 dark:bg-gray-800 rounded-lg">
-              {(["salesforce", "http"] as const).map((t) => (
+              {(["salesforce", "http", "browser"] as const).map((t) => (
                 <button
                   key={t}
                   onClick={() => setConnType(t)}
                   className={`flex-1 text-xs py-1 rounded-md font-medium transition-colors ${connType === t ? "bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm" : "text-gray-500 dark:text-gray-400 hover:text-gray-700"}`}
                 >
-                  {t === "salesforce" ? "⚡ Salesforce" : "🌐 Generic HTTP"}
+                  {t === "salesforce" ? "⚡ Salesforce" : t === "http" ? "🌐 HTTP API" : "🤖 Browser"}
                 </button>
               ))}
             </div>
@@ -419,7 +481,7 @@ export default function ConnectionsPage() {
                 <input placeholder="Consumer Key" value={form.consumer_key} onChange={field("consumer_key")} className={INPUT_CLS} />
                 <input type="password" placeholder="Consumer Secret" value={form.consumer_secret} onChange={field("consumer_secret")} className={INPUT_CLS} />
               </>
-            ) : (
+            ) : connType === "http" ? (
               <>
                 <select value={httpForm.auth_type} onChange={(e) => setHttpForm((f) => ({ ...f, auth_type: e.target.value }))} className={INPUT_CLS}>
                   <option value="none">No Auth</option>
@@ -442,6 +504,11 @@ export default function ConnectionsPage() {
                   className={INPUT_CLS}
                 />
                 <p className="text-[10px] text-gray-400">Add agents after saving to configure individual endpoint URLs.</p>
+              </>
+            ) : (
+              <>
+                <p className="text-[10px] text-indigo-600 dark:text-indigo-400 font-medium">No API key needed — drives a real browser to interact with any chat widget.</p>
+                <p className="text-[10px] text-gray-400">Save the connection, then add agents with the target URL and CSS selectors.</p>
               </>
             )}
 
@@ -475,10 +542,12 @@ export default function ConnectionsPage() {
               }`}
             >
               <div className="flex items-center gap-1.5">
-                <span className="text-[10px] shrink-0">{c.connection_type === "http" ? "🌐" : "⚡"}</span>
+                <span className="text-[10px] shrink-0">{c.connection_type === "http" ? "🌐" : c.connection_type === "browser" ? "🤖" : "⚡"}</span>
                 <span className="text-sm font-medium truncate">{c.name}</span>
               </div>
-              <div className="text-xs text-gray-400 truncate">{c.connection_type === "http" ? "Generic HTTP" : c.domain}</div>
+              <div className="text-xs text-gray-400 truncate">
+                {c.connection_type === "http" ? "HTTP API" : c.connection_type === "browser" ? "Browser Automation" : c.domain}
+              </div>
             </button>
           ))}
           {connections.length === 0 && (
@@ -515,7 +584,7 @@ export default function ConnectionsPage() {
                 >
                   {testing ? "Testing..." : "Test Connection"}
                 </button>
-                {selected?.connection_type !== "http" && (
+                {selected?.connection_type === "salesforce" && (
                   <button
                     onClick={handleSync}
                     disabled={syncing}
@@ -524,7 +593,7 @@ export default function ConnectionsPage() {
                     {syncing ? "Syncing..." : "Sync Agents"}
                   </button>
                 )}
-                {selected?.connection_type !== "http" && (
+                {selected?.connection_type === "salesforce" && (
                   <button
                     onClick={() => setShowAgentForm((v) => !v)}
                     className="text-xs px-3 py-1.5 border border-dashed border-gray-400 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-400"
@@ -573,7 +642,7 @@ export default function ConnectionsPage() {
             {agents.length > 0 && (
               <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shrink-0">
                 <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
-                  Agents ({agents.length}) — click to chat{selected?.connection_type !== "http" ? ", Edit to fix Salesforce ID" : ""}
+                  Agents ({agents.length}) — {selected?.connection_type === "salesforce" ? "click to chat, Edit to fix Salesforce ID" : selected?.connection_type === "browser" ? "click to chat, 📸 to verify page" : "click to chat"}
                 </p>
                 <div className="flex flex-col gap-1.5">
                   {agents.map((a) => (
@@ -599,16 +668,46 @@ export default function ConnectionsPage() {
                       >
                         Edit
                       </button>
-                      <button
-                        onClick={() => { setManualChatAgent(a); setManualChatMessages([]); setManualChatSession(null); setEditingAgent(null); }}
-                        title="Manually send questions one at a time"
-                        className="text-xs px-2 py-1.5 border border-orange-300 dark:border-orange-700 rounded hover:bg-orange-50 dark:hover:bg-orange-900/20 text-orange-600 dark:text-orange-400 shrink-0"
-                      >
-                        Test
-                      </button>
+                      {a.agent_type === "browser" ? (
+                        <button
+                          onClick={() => handleScreenshot(a.id)}
+                          disabled={takingScreenshot}
+                          title="Take a screenshot to verify the page loads"
+                          className="text-xs px-2 py-1.5 border border-purple-300 dark:border-purple-700 rounded hover:bg-purple-50 dark:hover:bg-purple-900/20 text-purple-600 dark:text-purple-400 shrink-0 disabled:opacity-50"
+                        >
+                          {takingScreenshot ? "..." : "📸"}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => { setManualChatAgent(a); setManualChatMessages([]); setManualChatSession(null); setEditingAgent(null); }}
+                          title="Manually send questions one at a time"
+                          className="text-xs px-2 py-1.5 border border-orange-300 dark:border-orange-700 rounded hover:bg-orange-50 dark:hover:bg-orange-900/20 text-orange-600 dark:text-orange-400 shrink-0"
+                        >
+                          Test
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
+              </div>
+            )}
+
+            {/* Screenshot result */}
+            {screenshotResult && (
+              <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-800 bg-purple-50 dark:bg-purple-950/20 shrink-0">
+                <div className="flex items-center justify-between mb-2">
+                  <p className={`text-xs font-medium ${screenshotResult.success ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
+                    {screenshotResult.success ? "✅" : "❌"} {screenshotResult.message}
+                  </p>
+                  <button onClick={() => setScreenshotResult(null)} className="text-xs text-gray-400 hover:text-gray-600">✕</button>
+                </div>
+                {screenshotResult.screenshot_b64 && (
+                  <img
+                    src={`data:image/png;base64,${screenshotResult.screenshot_b64}`}
+                    alt="Page screenshot"
+                    className="rounded border border-gray-200 dark:border-gray-700 max-w-full"
+                  />
+                )}
               </div>
             )}
 
@@ -871,6 +970,78 @@ export default function ConnectionsPage() {
               )}
             </div>
 
+            {/* Browser Agent form — shown for Browser connections */}
+            {selected?.connection_type === "browser" && (
+              <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shrink-0">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">🤖 Browser Agents</span>
+                  <button
+                    onClick={() => setShowBrowserAgentForm((v) => !v)}
+                    className="text-xs bg-indigo-600 text-white px-2 py-1 rounded hover:bg-indigo-700"
+                  >
+                    + Add Page
+                  </button>
+                </div>
+
+                {showBrowserAgentForm && (
+                  <div className="bg-indigo-50 dark:bg-indigo-950/20 rounded p-3 mb-2 flex flex-col gap-2">
+                    <p className="text-[10px] text-gray-500 dark:text-gray-400">
+                      Playwright opens this page in a headless browser. Use CSS selectors to identify the chat input, send button, and response container.
+                    </p>
+
+                    <input placeholder="Agent Name (e.g. Stanford Chatbot)" value={browserAgentForm.name} onChange={(e) => setBrowserAgentForm((f) => ({ ...f, name: e.target.value }))} className={INPUT_CLS} />
+                    <input placeholder="Page URL (e.g. https://www.stanford.edu/admissions)" value={browserAgentForm.url} onChange={(e) => setBrowserAgentForm((f) => ({ ...f, url: e.target.value }))} className={INPUT_CLS} />
+
+                    <div className="grid grid-cols-1 gap-2">
+                      <input placeholder="Input selector (e.g. input[placeholder*='message' i])" value={browserAgentForm.input_selector} onChange={(e) => setBrowserAgentForm((f) => ({ ...f, input_selector: e.target.value }))} className={INPUT_CLS + " font-mono text-[11px]"} />
+                      <input placeholder="Send button selector (e.g. button[type='submit']  or  Enter)" value={browserAgentForm.send_selector} onChange={(e) => setBrowserAgentForm((f) => ({ ...f, send_selector: e.target.value }))} className={INPUT_CLS + " font-mono text-[11px]"} />
+                      <input placeholder="Response selector (e.g. .bot-message  or  [data-role='bot'])" value={browserAgentForm.response_selector} onChange={(e) => setBrowserAgentForm((f) => ({ ...f, response_selector: e.target.value }))} className={INPUT_CLS + " font-mono text-[11px]"} />
+                      <input placeholder="Iframe selector (leave blank if no iframe)" value={browserAgentForm.iframe_selector} onChange={(e) => setBrowserAgentForm((f) => ({ ...f, iframe_selector: e.target.value }))} className={INPUT_CLS + " font-mono text-[11px]"} />
+                    </div>
+
+                    <div className="flex gap-2">
+                      <div className="flex-1">
+                        <label className="text-[10px] text-gray-500 block mb-0.5">Wait after page load (ms)</label>
+                        <input type="number" value={browserAgentForm.load_wait_ms} onChange={(e) => setBrowserAgentForm((f) => ({ ...f, load_wait_ms: e.target.value }))} className={INPUT_CLS} />
+                      </div>
+                      <div className="flex-1">
+                        <label className="text-[10px] text-gray-500 block mb-0.5">Wait for bot reply (ms)</label>
+                        <input type="number" value={browserAgentForm.wait_after_send_ms} onChange={(e) => setBrowserAgentForm((f) => ({ ...f, wait_after_send_ms: e.target.value }))} className={INPUT_CLS} />
+                      </div>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <button onClick={handleSaveBrowserAgent} disabled={savingBrowserAgent || !browserAgentForm.name.trim() || !browserAgentForm.url.trim()} className="text-xs bg-indigo-600 text-white px-4 py-1.5 rounded hover:bg-indigo-700 disabled:opacity-50">
+                        {savingBrowserAgent ? "Saving..." : "Save Agent"}
+                      </button>
+                      <button onClick={() => setShowBrowserAgentForm(false)} className="text-xs text-gray-500 px-3 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800">Cancel</button>
+                    </div>
+
+                    {/* Common selector hints */}
+                    <div className="text-[10px] text-gray-400 mt-1 space-y-0.5 border-t border-gray-200 dark:border-gray-700 pt-2">
+                      <p className="font-medium text-gray-500">Common selector patterns:</p>
+                      {[
+                        ["Chat input", "input[placeholder*='message' i]  or  textarea[placeholder*='type' i]"],
+                        ["Send button", "button[type='submit']  or  Enter"],
+                        ["Salesforce MIAW", ".slds-chat-listitem_inbound .slds-chat-message__text"],
+                        ["Intercom", "[data-testid='message-text']"],
+                        ["Generic bot msg", ".bot-message  or  [data-role='bot']  or  .assistant"],
+                      ].map(([label, sel]) => (
+                        <p key={label}><span className="text-gray-400">{label}:</span> <code className="bg-gray-100 dark:bg-gray-800 px-1 rounded">{sel}</code></p>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Screenshot section — for saved agents */}
+                {agents.filter((a) => a.agent_type === "browser").length > 0 && (
+                  <div className="mt-1 text-[10px] text-gray-400">
+                    <p>Tip: Click <strong>📸 Screenshot</strong> on a saved agent to verify the page loads correctly before running tests.</p>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* HTTP Agent form — shown for HTTP connections */}
             {selected?.connection_type === "http" && (
               <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shrink-0">
@@ -934,7 +1105,7 @@ export default function ConnectionsPage() {
             )}
 
             {/* Manual agent add form — Salesforce only */}
-            {showAgentForm && selected?.connection_type !== "http" && (
+            {showAgentForm && selected?.connection_type === "salesforce" && (
               <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-800 bg-amber-50 dark:bg-amber-950/20 shrink-0">
                 <p className="text-xs font-medium text-amber-700 dark:text-amber-400 mb-2">
                   Add Agent Manually
@@ -981,7 +1152,7 @@ export default function ConnectionsPage() {
             )}
 
             {/* SOQL Diagnostic — Salesforce only */}
-            {selected?.connection_type !== "http" && <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/50 shrink-0">
+            {selected?.connection_type === "salesforce" && <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/50 shrink-0">
               <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">
                 SOQL Query — inspect your Salesforce org directly
               </p>

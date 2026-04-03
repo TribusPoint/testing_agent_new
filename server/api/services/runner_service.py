@@ -6,6 +6,7 @@ from sqlalchemy import select, update as sa_update
 from models.tables import TestRun, TestRunResult, InitiatingQuestion, Agent, SalesforceConnection
 from api.services.salesforce import get_token, create_session, send_message, end_session, SalesforceError
 from api.services.http_service import send_http_message, HttpServiceError
+from api.services.browser_service import BrowserSession, BrowserServiceError
 from api.services.inspired_utterance import get_inspired_utterance
 from api.services.evaluation_service import evaluate_result
 from api.services.event_bus import publish
@@ -93,8 +94,10 @@ async def execute_run(run_id: str, db: AsyncSession) -> None:
     )
     results = result.scalars().all()
 
-    # Authenticate once for Salesforce; HTTP needs no pre-auth
+    # Authenticate once for Salesforce; HTTP/browser need no pre-auth
     token = None
+    browser_session: BrowserSession | None = None
+
     if conn_type == "salesforce":
         try:
             token = await get_token(conn_domain, conn_consumer_key, conn_consumer_secret)
@@ -106,181 +109,205 @@ async def execute_run(run_id: str, db: AsyncSession) -> None:
             await publish(run_id, {"type": "run_failed", "run_id": run_id, "error": str(e)})
             return
 
+    elif conn_type == "browser":
+        try:
+            browser_session = BrowserSession(agent_config)
+            await browser_session.start()
+        except BrowserServiceError as e:
+            await db.execute(
+                sa_update(TestRun).where(TestRun.id == run_id).values(status="failed")
+            )
+            await db.commit()
+            await publish(run_id, {"type": "run_failed", "run_id": run_id, "error": str(e)})
+            return
+
     completed_count = 0
 
-    for result_row in results:
-        if is_cancelled(run_id):
-            logger.info("Run %s cancelled before question %s", run_id, result_row.id)
-            break
+    try:
+        for result_row in results:
+            if is_cancelled(run_id):
+                logger.info("Run %s cancelled before question %s", run_id, result_row.id)
+                break
 
-        session_id = None
-
-        # Transition: pending → running
-        result_row.status = "running"
-        await db.commit()
-        await publish(run_id, {
-            "type": "result_update",
-            "result_id": result_row.id,
-            "status": "running",
-            "question_text": result_row.question_text,
-        })
-
-        try:
             session_id = None
-            seq = 1
 
-            if conn_type == "http":
-                # ── Generic HTTP ──────────────────────────────────────────
-                start = time.monotonic()
-                response_text = await send_http_message(
-                    conn_config=conn_config,
-                    agent_config=agent_config,
-                    question=result_row.question_text,
-                    timeout=settings.SF_TURN_TIMEOUT,
-                )
-                latency_ms = int((time.monotonic() - start) * 1000)
-            else:
-                # ── Salesforce AgentForce ────────────────────────────────
-                session_id = await create_session(
-                    conn_domain, token, agent_salesforce_id,
-                    developer_name=agent_developer_name,
-                    runtime_url=agent_runtime_url,
-                )
-                start = time.monotonic()
-                response_text = await send_message(
-                    conn_domain, token, agent_salesforce_id, session_id,
-                    result_row.question_text, seq_id=seq,
-                )
-                latency_ms = int((time.monotonic() - start) * 1000)
-                seq += 1
-
-            conversation = [
-                {"role": "user", "text": result_row.question_text},
-                {"role": "agent", "text": response_text},
-            ]
-            follow_ups = []
-
-            # Look up actual persona and personality profile from the question row
-            question_obj = (
-                await db.get(InitiatingQuestion, result_row.question_id)
-                if result_row.question_id else None
-            )
-            persona = (question_obj.persona or "General") if question_obj else "General"
-            personality_profile = (question_obj.personality_profile or "Neutral") if question_obj else "Neutral"
-            expected_answer = question_obj.expected_answer if question_obj else None
-
-            # Initialise to avoid UnboundLocalError when 0 follow-ups occur
-            utterance_result: dict = {"answered": True, "utterance": ""}
-
-            # Follow-up loop
-            for _ in range(settings.MAX_FOLLOW_UPS):
-                trimmed_conv = _trim_conversation(conversation)
-                utterance_result = await get_inspired_utterance(
-                    initiating_question=result_row.question_text,
-                    persona=persona,
-                    personality_profile=personality_profile,
-                    conversation=trimmed_conv,
-                )
-                if utterance_result["answered"]:
-                    break
-                next_utterance = utterance_result.get("utterance", "")
-                if not next_utterance:
-                    break
-
-                if conn_type == "http":
-                    follow_up_response = await send_http_message(
-                        conn_config=conn_config,
-                        agent_config=agent_config,
-                        question=next_utterance,
-                        timeout=settings.SF_TURN_TIMEOUT,
-                    )
-                else:
-                    follow_up_response = await send_message(
-                        conn_domain, token, agent_salesforce_id, session_id,
-                        next_utterance, seq_id=seq,
-                    )
-                    seq += 1
-                follow_ups.append({
-                    "utterance": next_utterance,
-                    "response": follow_up_response,
-                })
-                conversation.extend([
-                    {"role": "user", "text": next_utterance},
-                    {"role": "agent", "text": follow_up_response},
-                ])
-
-            # Transition: running → evaluating
-            result_row.status = "evaluating"
+            # Transition: pending → running
+            result_row.status = "running"
             await db.commit()
             await publish(run_id, {
                 "type": "result_update",
                 "result_id": result_row.id,
-                "status": "evaluating",
+                "status": "running",
+                "question_text": result_row.question_text,
             })
 
-            evaluation = await evaluate_result(
-                result_row.question_text,
-                _trim_conversation(conversation),
-                expected_answer=expected_answer,
+            try:
+                session_id = None
+                seq = 1
+
+                if conn_type == "http":
+                    # ── Generic HTTP ──────────────────────────────────────────
+                    start = time.monotonic()
+                    response_text = await send_http_message(
+                        conn_config=conn_config,
+                        agent_config=agent_config,
+                        question=result_row.question_text,
+                        timeout=settings.SF_TURN_TIMEOUT,
+                    )
+                    latency_ms = int((time.monotonic() - start) * 1000)
+                elif conn_type == "browser":
+                    # ── Browser Automation ────────────────────────────────────
+                    start = time.monotonic()
+                    response_text = await browser_session.send_message(result_row.question_text)
+                    latency_ms = int((time.monotonic() - start) * 1000)
+                else:
+                    # ── Salesforce AgentForce ────────────────────────────────
+                    session_id = await create_session(
+                        conn_domain, token, agent_salesforce_id,
+                        developer_name=agent_developer_name,
+                        runtime_url=agent_runtime_url,
+                    )
+                    start = time.monotonic()
+                    response_text = await send_message(
+                        conn_domain, token, agent_salesforce_id, session_id,
+                        result_row.question_text, seq_id=seq,
+                    )
+                    latency_ms = int((time.monotonic() - start) * 1000)
+                    seq += 1
+
+                conversation = [
+                    {"role": "user", "text": result_row.question_text},
+                    {"role": "agent", "text": response_text},
+                ]
+                follow_ups = []
+
+                question_obj = (
+                    await db.get(InitiatingQuestion, result_row.question_id)
+                    if result_row.question_id else None
+                )
+                persona = (question_obj.persona or "General") if question_obj else "General"
+                personality_profile = (question_obj.personality_profile or "Neutral") if question_obj else "Neutral"
+                expected_answer = question_obj.expected_answer if question_obj else None
+
+                utterance_result: dict = {"answered": True, "utterance": ""}
+
+                for _ in range(settings.MAX_FOLLOW_UPS):
+                    trimmed_conv = _trim_conversation(conversation)
+                    utterance_result = await get_inspired_utterance(
+                        initiating_question=result_row.question_text,
+                        persona=persona,
+                        personality_profile=personality_profile,
+                        conversation=trimmed_conv,
+                    )
+                    if utterance_result["answered"]:
+                        break
+                    next_utterance = utterance_result.get("utterance", "")
+                    if not next_utterance:
+                        break
+
+                    if conn_type == "http":
+                        follow_up_response = await send_http_message(
+                            conn_config=conn_config,
+                            agent_config=agent_config,
+                            question=next_utterance,
+                            timeout=settings.SF_TURN_TIMEOUT,
+                        )
+                    elif conn_type == "browser":
+                        follow_up_response = await browser_session.send_message(next_utterance)
+                    else:
+                        follow_up_response = await send_message(
+                            conn_domain, token, agent_salesforce_id, session_id,
+                            next_utterance, seq_id=seq,
+                        )
+                        seq += 1
+                    follow_ups.append({
+                        "utterance": next_utterance,
+                        "response": follow_up_response,
+                    })
+                    conversation.extend([
+                        {"role": "user", "text": next_utterance},
+                        {"role": "agent", "text": follow_up_response},
+                    ])
+
+                result_row.status = "evaluating"
+                await db.commit()
+                await publish(run_id, {
+                    "type": "result_update",
+                    "result_id": result_row.id,
+                    "status": "evaluating",
+                })
+
+                evaluation = await evaluate_result(
+                    result_row.question_text,
+                    _trim_conversation(conversation),
+                    expected_answer=expected_answer,
+                )
+
+                result_row.response_text = response_text
+                result_row.follow_up_utterances = follow_ups
+                result_row.latency_ms = latency_ms
+                result_row.answered = utterance_result.get("answered", True)
+                result_row.score = evaluation["score"]
+                result_row.evaluation_notes = evaluation["notes"]
+                result_row.status = "completed"
+
+            except (SalesforceError, HttpServiceError, BrowserServiceError) as e:
+                logger.error("Connector error for result %s in run %s: %s", result_row.id, run_id, e)
+                result_row.response_text = f"Error: {e}"
+                result_row.status = "failed"
+                await publish(run_id, {
+                    "type": "result_update",
+                    "result_id": result_row.id,
+                    "status": "failed",
+                    "error": str(e),
+                })
+            except Exception as e:
+                logger.exception("Unexpected error for result %s in run %s", result_row.id, run_id)
+                result_row.response_text = f"Unexpected error: {e}"
+                result_row.status = "failed"
+                await publish(run_id, {
+                    "type": "result_update",
+                    "result_id": result_row.id,
+                    "status": "failed",
+                    "error": str(e),
+                })
+            finally:
+                if session_id:
+                    try:
+                        await end_session(conn_domain, token, agent_salesforce_id, session_id)
+                    except Exception:
+                        pass
+
+            completed_count += 1
+            await db.execute(
+                sa_update(TestRun)
+                .where(TestRun.id == run_id)
+                .values(completed_questions=completed_count)
             )
+            await db.commit()
 
-            result_row.response_text = response_text
-            result_row.follow_up_utterances = follow_ups
-            result_row.latency_ms = latency_ms
-            result_row.answered = utterance_result.get("answered", True)
-            result_row.score = evaluation["score"]
-            result_row.evaluation_notes = evaluation["notes"]
-            result_row.status = "completed"
+            if result_row.status == "completed":
+                await publish(run_id, {
+                    "type": "result_update",
+                    "result_id": result_row.id,
+                    "status": "completed",
+                    "score": result_row.score,
+                    "latency_ms": result_row.latency_ms,
+                    "answered": result_row.answered,
+                    "response_text": result_row.response_text,
+                    "evaluation_notes": result_row.evaluation_notes,
+                    "follow_up_count": len(result_row.follow_up_utterances or []),
+                    "completed_questions": completed_count,
+                    "total_questions": total_questions,
+                })
 
-        except (SalesforceError, HttpServiceError) as e:
-            logger.error("Connector error for result %s in run %s: %s", result_row.id, run_id, e)
-            result_row.response_text = f"Error: {e}"
-            result_row.status = "failed"
-            await publish(run_id, {
-                "type": "result_update",
-                "result_id": result_row.id,
-                "status": "failed",
-                "error": str(e),
-            })
-        except Exception as e:
-            logger.exception("Unexpected error for result %s in run %s", result_row.id, run_id)
-            result_row.response_text = f"Unexpected error: {e}"
-            result_row.status = "failed"
-            await publish(run_id, {
-                "type": "result_update",
-                "result_id": result_row.id,
-                "status": "failed",
-                "error": str(e),
-            })
-        finally:
-            if session_id:
-                try:
-                    await end_session(conn_domain, token, agent_salesforce_id, session_id)
-                except Exception:
-                    pass
-
-        completed_count += 1
-        await db.execute(
-            sa_update(TestRun)
-            .where(TestRun.id == run_id)
-            .values(completed_questions=completed_count)
-        )
-        await db.commit()
-
-        if result_row.status == "completed":
-            await publish(run_id, {
-                "type": "result_update",
-                "result_id": result_row.id,
-                "status": "completed",
-                "score": result_row.score,
-                "latency_ms": result_row.latency_ms,
-                "answered": result_row.answered,
-                "response_text": result_row.response_text,
-                "evaluation_notes": result_row.evaluation_notes,
-                "follow_up_count": len(result_row.follow_up_utterances or []),
-                "completed_questions": completed_count,
-                "total_questions": total_questions,
-            })
+    finally:
+        # Always close browser session when run finishes or fails
+        if browser_session:
+            try:
+                await browser_session.close()
+            except Exception:
+                pass
 
     final_status = "cancelled" if is_cancelled(run_id) else "completed"
     clear_cancelled(run_id)

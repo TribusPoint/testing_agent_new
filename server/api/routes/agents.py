@@ -561,6 +561,22 @@ async def chat_with_agent(
         raise HTTPException(status_code=502, detail=str(e))
 
 
+@router.get("/api/agents/{agent_id}/screenshot")
+async def screenshot_agent(agent_id: str, db: AsyncSession = Depends(get_db)):
+    """
+    Open the browser agent's URL and return a PNG screenshot (base64).
+    Used to help the user verify their URL and choose CSS selectors.
+    """
+    from fastapi.responses import JSONResponse
+    from api.services.browser_service import test_browser_connection
+    agent = await db.get(Agent, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    config = agent.config or {}
+    result = await test_browser_connection(config)
+    return JSONResponse(result)
+
+
 @router.post("/api/agents/{agent_id}/sessions/end", status_code=204)
 async def close_session(
     agent_id: str, body: EndSessionRequest, db: AsyncSession = Depends(get_db)
