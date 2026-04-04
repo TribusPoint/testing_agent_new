@@ -1,5 +1,5 @@
 # Build context must be this directory (`server/`). On Railway: set Root Directory to `server`.
-FROM python:3.12-bookworm-slim
+FROM python:3.12-slim
 
 WORKDIR /app
 
