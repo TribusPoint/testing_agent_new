@@ -9,6 +9,9 @@ from api.services.salesforce import (
     get_token, fetch_agents, fetch_agent_metadata,
     create_session, send_message, end_session, SalesforceError,
 )
+from api.services.http_service import send_http_message, HttpServiceError
+from api.services.browser_service import send_browser_message_once, BrowserServiceError
+from config import settings
 
 router = APIRouter(tags=["agents"])
 
@@ -371,6 +374,43 @@ async def manual_chat(agent_id: str, body: ManualChatRequest, db: AsyncSession =
     if not conn:
         raise HTTPException(status_code=404, detail="Connection not found")
 
+    conn_type = conn.connection_type or "salesforce"
+    agent_config = agent.config or {}
+    conn_config = conn.config or {}
+
+    if conn_type == "http":
+        try:
+            response = await send_http_message(
+                conn_config=conn_config,
+                agent_config=agent_config,
+                question=body.message,
+                timeout=settings.SF_TURN_TIMEOUT,
+            )
+        except HttpServiceError as e:
+            raise HTTPException(status_code=502, detail=str(e))
+        return {
+            "session_id": body.session_id or "http",
+            "new_session": body.session_id is None,
+            "response": response,
+            "agent_id_used": "",
+            "developer_name_used": "",
+            "runtime_url_used": agent_config.get("endpoint", ""),
+        }
+
+    if conn_type == "browser":
+        try:
+            response = await send_browser_message_once(agent_config, body.message)
+        except BrowserServiceError as e:
+            raise HTTPException(status_code=502, detail=str(e))
+        return {
+            "session_id": body.session_id or "browser",
+            "new_session": body.session_id is None,
+            "response": response,
+            "agent_id_used": "",
+            "developer_name_used": "",
+            "runtime_url_used": agent_config.get("url", ""),
+        }
+
     try:
         token = await get_token(conn.domain, conn.consumer_key, conn.consumer_secret)
     except Exception as e:
@@ -540,6 +580,40 @@ async def chat_with_agent(
     if not conn:
         raise HTTPException(status_code=404, detail="Connection not found")
 
+    conn_type = conn.connection_type or "salesforce"
+    agent_config = agent.config or {}
+    conn_config = conn.config or {}
+
+    # ── Generic HTTP (no OAuth, no domain) ────────────────────────────────
+    if conn_type == "http":
+        try:
+            response_text = await send_http_message(
+                conn_config=conn_config,
+                agent_config=agent_config,
+                question=body.message,
+                timeout=settings.SF_TURN_TIMEOUT,
+            )
+            return ChatResponse(
+                session_id=body.session_id or "http",
+                response=response_text,
+                is_new_session=body.session_id is None,
+            )
+        except HttpServiceError as e:
+            raise HTTPException(status_code=502, detail=str(e))
+
+    # ── Browser automation (Playwright) ──────────────────────────────────
+    if conn_type == "browser":
+        try:
+            response_text = await send_browser_message_once(agent_config, body.message)
+            return ChatResponse(
+                session_id=body.session_id or "browser",
+                response=response_text,
+                is_new_session=body.session_id is None,
+            )
+        except BrowserServiceError as e:
+            raise HTTPException(status_code=502, detail=str(e))
+
+    # ── Salesforce AgentForce ─────────────────────────────────────────────
     try:
         token = await get_token(conn.domain, conn.consumer_key, conn.consumer_secret)
 
@@ -587,6 +661,8 @@ async def close_session(
     conn = await db.get(SalesforceConnection, agent.connection_id)
     if not conn:
         raise HTTPException(status_code=404, detail="Connection not found")
+    if (conn.connection_type or "salesforce") != "salesforce":
+        return  # HTTP / Browser have no Salesforce session to close
     try:
         token = await get_token(conn.domain, conn.consumer_key, conn.consumer_secret)
         await end_session(conn.domain, token, agent.salesforce_id, body.session_id)
