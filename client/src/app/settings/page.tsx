@@ -27,9 +27,14 @@ export default function SettingsPage() {
     const stored = api.getStoredKey();
     if (stored) {
       setKeyDraft(stored);
-      verifyAndSet(stored, false);
+      // Delay auto-verify so the page is fully interactive before making API calls
+      const t = setTimeout(() => verifyAndSet(stored, false), 800);
+      return () => clearTimeout(t);
     }
-    api.getLlmConfig().then(setLlmConfig).catch(() => {});
+    // Only fetch LLM config if a key is already stored
+    if (api.getStoredKey()) {
+      api.getLlmConfig().then(setLlmConfig).catch(() => {});
+    }
   }, []);
 
   async function verifyAndSet(key: string, showSaved: boolean) {
