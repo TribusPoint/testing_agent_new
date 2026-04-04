@@ -52,6 +52,9 @@ class BrowserSession:
                 "Playwright is not installed. Run: pip install playwright && playwright install chromium"
             )
 
+        # Same web crawl as UI "Discover" — fills missing selectors before loading.
+        self._cfg = await ensure_browser_selectors(dict(self._cfg))
+
         url = (self._cfg.get("url") or "").strip()
         if not url:
             raise BrowserServiceError("Browser agent has no URL configured. Edit the agent and set the Page URL.")
@@ -654,6 +657,74 @@ async def probe_page(url: str) -> dict:
             }
         finally:
             await browser.close()
+
+
+async def ensure_browser_selectors(cfg: dict) -> dict:
+    """
+    If any of input / send / response selectors are missing, run *probe_page*
+    (the same crawl as the UI Discover button) and merge non-empty suggestions.
+
+    This lets chat and test runs work when only the Page URL is saved.
+    """
+    out = dict(cfg)
+
+    def complete() -> bool:
+        return bool(
+            (out.get("input_selector") or "").strip()
+            and (out.get("send_selector") or "").strip()
+            and (out.get("response_selector") or "").strip()
+        )
+
+    if complete():
+        return out
+
+    url = (out.get("url") or "").strip()
+    if not url:
+        raise BrowserServiceError(
+            "Browser agent needs a Page URL, or fill in Input, Send, and Response selectors manually."
+        )
+
+    logger.info("Selectors incomplete — running auto web probe (Discover) for %s", url)
+    probe = await probe_page(url)
+
+    if not probe.get("success"):
+        err = probe.get("error", "probe failed")
+        raise BrowserServiceError(
+            f"Auto-discover failed: {err}. Click Discover in the UI or set selectors manually."
+        )
+
+    s = probe.get("suggested") or {}
+
+    if not (out.get("input_selector") or "").strip() and (s.get("input_selector") or "").strip():
+        out["input_selector"] = s["input_selector"]
+    if not (out.get("send_selector") or "").strip():
+        out["send_selector"] = (s.get("send_selector") or "").strip() or "Enter"
+    if not (out.get("response_selector") or "").strip() and (s.get("response_selector") or "").strip():
+        out["response_selector"] = s["response_selector"]
+    if not (out.get("iframe_selector") or "").strip() and (s.get("iframe_selector") or "").strip():
+        out["iframe_selector"] = s["iframe_selector"]
+
+    if s.get("load_wait_ms") and not out.get("load_wait_ms"):
+        out["load_wait_ms"] = s["load_wait_ms"]
+    if s.get("wait_after_send_ms") and not out.get("wait_after_send_ms"):
+        out["wait_after_send_ms"] = s["wait_after_send_ms"]
+
+    if not complete():
+        fc = probe.get("found_count", 0)
+        raise BrowserServiceError(
+            f"Auto-discover only found {fc}/3 selector types. "
+            "Use Discover in the Connections page, pick selectors from the raw element list, "
+            "save the agent, and try again."
+        )
+
+    logger.info(
+        "Auto-filled selectors: input=%s send=%s response=%s iframe=%s",
+        out.get("input_selector"),
+        out.get("send_selector"),
+        out.get("response_selector"),
+        out.get("iframe_selector") or "(none)",
+    )
+    return out
 
 
 async def test_browser_connection(agent_config: dict) -> dict:

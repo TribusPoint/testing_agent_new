@@ -1046,6 +1046,9 @@ export default function ConnectionsPage() {
                         Opening browser, clicking chat launcher, scanning DOM for selectors… (may take 10–20s)
                       </p>
                     )}
+                    <p className="text-[10px] text-gray-500 dark:text-gray-400">
+                      Tip: If you only set the Page URL and save the agent, the server runs the same Discover crawl automatically on the first chat or test run (slower first message).
+                    </p>
 
                     <div className="grid grid-cols-1 gap-2">
                       <input placeholder="Input selector (e.g. input[placeholder*='message' i])" value={browserAgentForm.input_selector} onChange={(e) => setBrowserAgentForm((f) => ({ ...f, input_selector: e.target.value }))} className={INPUT_CLS + " font-mono text-[11px]"} />
