@@ -45,6 +45,11 @@ app.include_router(dashboard_router, dependencies=_auth)
 app.include_router(browser_router, dependencies=_auth)
 
 
+@app.get("/ping")
+async def ping():
+    return "pong"
+
+
 @app.get("/health")
 async def health():
     return {"status": "ok", "env": settings.APP_ENV}

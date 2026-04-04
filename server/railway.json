@@ -5,6 +5,7 @@
     "dockerfilePath": "Dockerfile"
   },
   "deploy": {
-    "healthcheckPath": "/health"
+    "healthcheckPath": "/ping",
+    "healthcheckTimeout": 120
   }
 }
