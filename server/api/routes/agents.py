@@ -458,6 +458,13 @@ async def discover_runtime_ids(connection_id: str, db: AsyncSession = Depends(ge
     if not conn:
         raise HTTPException(status_code=404, detail="Connection not found")
 
+    if (conn.connection_type or "salesforce") != "salesforce":
+        return {
+            "agents": [],
+            "errors": [],
+            "instructions": "Agent ID auto-discovery is only for Salesforce. Use + Add Page for Browser or HTTP agents.",
+        }
+
     import httpx
     import re
 

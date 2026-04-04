@@ -721,14 +721,7 @@ async def probe_page(url: str) -> dict:
                             if iframe_sel:
                                 best["iframe"] = iframe_sel
 
-            # ── 7. Screenshot ──────────────────────────────────────────────
-            png = await page.screenshot(type="png", full_page=False)
-            screenshot_b64 = base64.b64encode(png).decode()
-
-            found_count = sum(1 for k in ["input", "send", "response"] if best[k])
-            log_lines.append(f"Done. Found {found_count}/3 selector types.")
-
-            # Parent <iframe> for MS Omnichannel (widget is inside; BrowserSession needs this)
+            # ── 6b. Detect Omnichannel parent iframe (before fallbacks) ─────
             omni_iframe_sel = ""
             try:
                 ms_if_el = await page.query_selector(
@@ -742,6 +735,64 @@ async def probe_page(url: str) -> dict:
                         log_lines.append(f"Omnichannel iframe selector: {omni_iframe_sel}")
             except Exception:
                 pass
+
+            # ── 6c. Fallbacks: Bot Framework / Omnichannel often show NO bot bubbles
+            #     until after the first user message — probe would only find 1–2 types.
+            _meta = {"placeholder": "", "text": "", "iframe": best["iframe"], "frame_label": ""}
+
+            if best["input"] and not best["send"]:
+                best["send"] = {
+                    "selector": "Enter", "score": 6, "count": 1, **_meta,
+                }
+                log_lines.append("Inferred send selector: Enter (no send button matched).")
+
+            def _looks_like_webchat() -> bool:
+                if omni_iframe_sel:
+                    return True
+                lc = str(launcher_clicked or "")
+                if "omnichannel" in lc.lower() or "lcwidget" in lc.lower():
+                    return True
+                inp_sel = ((best["input"] or {}).get("selector") or "").lower()
+                if "webchat" in inp_sel:
+                    return True
+                for cat in ("input", "send"):
+                    for c in all_candidates.get(cat, [])[:5]:
+                        if "webchat" in (c.get("selector") or "").lower():
+                            return True
+                return False
+
+            if best["input"] and best["send"] and not best["response"]:
+                if _looks_like_webchat():
+                    best["response"] = {
+                        "selector": ".webchat__bubble__content",
+                        "score": 12,
+                        "count": 0,
+                        **_meta,
+                        "frame_label": "(inferred — Web Chat bubbles after first send)",
+                    }
+                    log_lines.append(
+                        "Inferred response selector: .webchat__bubble__content "
+                        "(widget had no visible bot messages during probe)."
+                    )
+                else:
+                    # Generic: many widgets append new rows; user can refine in UI
+                    best["response"] = {
+                        "selector": "[role='log'] [role='article'], [role='listitem'], .message, .chat-message",
+                        "score": 4,
+                        "count": 0,
+                        **_meta,
+                        "frame_label": "(inferred — generic transcript)",
+                    }
+                    log_lines.append(
+                        "Inferred generic response selector (no bot text visible during probe)."
+                    )
+
+            # ── 7. Screenshot ──────────────────────────────────────────────
+            png = await page.screenshot(type="png", full_page=False)
+            screenshot_b64 = base64.b64encode(png).decode()
+
+            found_count = sum(1 for k in ["input", "send", "response"] if best[k])
+            log_lines.append(f"Done. Found {found_count}/3 selector types (after fallbacks).")
 
             suggested = {
                 "input_selector": best["input"]["selector"] if best["input"] else "",
