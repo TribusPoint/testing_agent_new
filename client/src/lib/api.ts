@@ -1,4 +1,21 @@
-const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
+/**
+ * FastAPI origin only — strip accidental path segments.
+ * If the env value has no scheme (common mistake), prepend https:// so the browser
+ * does not treat the host as a relative path on the Next.js origin.
+ */
+function apiBase(): string {
+  let raw = (process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080").trim();
+  if (!/^https?:\/\//i.test(raw)) {
+    raw = `https://${raw.replace(/^\/+/, "")}`;
+  }
+  try {
+    return new URL(raw).origin;
+  } catch {
+    return raw.replace(/\/+$/, "");
+  }
+}
+
+const BASE = apiBase();
 
 const KEY_STORAGE = "ta_api_key";
 
