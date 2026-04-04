@@ -19,12 +19,15 @@ app = FastAPI(
     debug=settings.DEBUG,
 )
 
+_cors_origins = [o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "X-API-Key", "Authorization", "Accept"],
+    expose_headers=["Content-Type"],
 )
 
 # Public routes — no auth required

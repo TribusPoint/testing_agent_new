@@ -10,6 +10,12 @@ class Settings(BaseSettings):
     SECRET_KEY: str = "change-me"
     MASTER_API_KEY: str = "master-change-me"
 
+    # Comma-separated browser origins (Railway frontend + local dev). Required for cookies/credentials from the UI.
+    CORS_ORIGINS: str = (
+        "http://localhost:3000,http://127.0.0.1:3000,"
+        "http://localhost:3001,http://127.0.0.1:3001"
+    )
+
     # LLM routing
     LLM_PROVIDER: str = "openai"          # "openai" | "anthropic"
     GENERATION_MODEL: str = "gpt-4o"
