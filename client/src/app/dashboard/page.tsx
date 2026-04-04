@@ -232,9 +232,9 @@ export default function DashboardPage() {
                   borderRadius: 8,
                   border: "1px solid #e5e7eb",
                 }}
-                formatter={(val: number, name: string) => [
-                  `${val}`,
-                  name === "avg_score" ? "Avg Score" : "Pass Rate %",
+                formatter={(value, name) => [
+                  `${value ?? "—"}`,
+                  String(name) === "avg_score" ? "Avg Score" : "Pass Rate %",
                 ]}
                 labelFormatter={(label) => `Run ${label}`}
               />

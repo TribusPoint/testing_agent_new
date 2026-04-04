@@ -534,13 +534,19 @@ export default function RunsPage() {
                       </a>
                     </>
                   )}
-                  {(selectedRun.status === "running" || selectedRun.status === "pending") && (
+                  {(selectedRun.status === "running" ||
+                    selectedRun.status === "pending" ||
+                    selectedRun.status === "cancelling") && (
                     <button
                       onClick={() => handleCancelRun(selectedRun.id)}
-                      disabled={cancellingRun === selectedRun.id || selectedRun.status === "cancelling"}
+                      disabled={
+                        cancellingRun === selectedRun.id || selectedRun.status === "cancelling"
+                      }
                       className="text-xs text-orange-500 hover:text-orange-700 px-2 py-1 rounded-lg hover:bg-orange-50 dark:hover:bg-orange-950/30 disabled:opacity-40 font-medium"
                     >
-                      {cancellingRun === selectedRun.id || selectedRun.status === "cancelling" ? "Cancelling…" : "Cancel Run"}
+                      {cancellingRun === selectedRun.id || selectedRun.status === "cancelling"
+                        ? "Cancelling…"
+                        : "Cancel Run"}
                     </button>
                   )}
                   <button
