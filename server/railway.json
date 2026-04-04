@@ -6,5 +6,8 @@
   },
   "deploy": {
     "healthcheckPath": "/health"
+  },
+  "networking": {
+    "serviceDomainPort": 8080
   }
 }
