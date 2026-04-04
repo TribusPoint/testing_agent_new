@@ -4,8 +4,9 @@
   "version": "0.0.1",
   "packageManager": "pnpm@9.15.0",
   "scripts": {
-    "dev": "pnpm --parallel --filter=server --filter=client dev",
-    "build": "pnpm --filter=shared build && pnpm --parallel --filter=server --filter=client build",
+    "dev": "pnpm --parallel --filter=@testing-agent/client dev",
+    "build": "pnpm --filter=@testing-agent/shared build && pnpm --filter=@testing-agent/client build",
+    "start": "pnpm --filter=@testing-agent/client start",
     "lint": "pnpm --recursive lint",
     "format": "prettier --write \"**/*.{ts,tsx,js,json,md}\"",
     "typecheck": "pnpm --recursive typecheck"
