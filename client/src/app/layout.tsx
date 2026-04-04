@@ -23,7 +23,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <NavLinks />
           </div>
         </header>
-        <main className="flex-1 overflow-hidden max-w-screen-xl mx-auto w-full">
+        <main className="flex-1 min-h-0 max-w-screen-xl mx-auto w-full flex flex-col">
           {children}
         </main>
       </body>

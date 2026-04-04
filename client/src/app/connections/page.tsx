@@ -473,7 +473,7 @@ export default function ConnectionsPage() {
     setForm((prev) => ({ ...prev, [k]: e.target.value }));
 
   return (
-    <div className="flex h-full">
+    <div className="flex flex-1 min-h-0 h-full">
       {/* Sidebar */}
       <aside className="w-64 shrink-0 border-r border-gray-200 dark:border-gray-800 flex flex-col bg-white dark:bg-gray-900">
         <div className="p-4 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between">
@@ -644,6 +644,9 @@ export default function ConnectionsPage() {
                 </button>
               </div>
             </div>
+
+            {/* ── Scrollable content area ────────────────────────────────── */}
+            <div className="flex-1 overflow-y-auto flex flex-col min-h-0">
 
             {/* Edit connection form */}
             {showEditConn && (
@@ -1471,6 +1474,8 @@ export default function ConnectionsPage() {
                 </div>
               )}
             </div>}
+
+            </div>{/* end scrollable content */}
 
             {/* Chat */}
             {chatAgent ? (
