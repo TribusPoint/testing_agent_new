@@ -233,6 +233,19 @@ async def probe_page(url: str) -> dict:
     # ── Known platform patterns ───────────────────────────────────────────────
 
     LAUNCHER_SELECTORS = [
+        # Microsoft Dynamics 365 Omnichannel Live Chat (e.g. Cleveland Clinic)
+        "#Microsoft_Omnichannel_LCWidget_Chat_Button",
+        "[id^='Microsoft_Omnichannel_LCWidget' i]",
+        "[id*='Omnichannel_LCWidget' i]",
+        "button[id*='LCWidget' i]",
+        "div[id*='LCWidget' i][role='button']",
+        "[id*='LCWidget_Chat' i][role='button']",
+        # Custom care / CTA strip that triggers Omnichannel
+        "section#call-out-panel button",
+        ".js-care-widget button",
+        ".care-widget button",
+        "[class*='js-care-widget' i] button",
+        "[class*='care-widget' i] a",
         # Salesforce MIAW / embedded service
         ".embeddedServiceHelpButton button",
         ".helpButtonEnabled",
@@ -271,6 +284,15 @@ async def probe_page(url: str) -> dict:
     ]
 
     INPUT_PATTERNS = [
+        # Microsoft Bot Framework Web Chat (inside Omnichannel iframe)
+        ("textarea.webchat__send-box-text-box__input", 16),
+        ("input.webchat__send-box-text-box__input", 16),
+        (".webchat__send-box textarea", 15),
+        (".webchat__send-box input[type='text']", 14),
+        ("[class*='webchat'][class*='send-box' i] textarea", 14),
+        ("textarea[aria-label*='message' i]", 12),
+        ("input[aria-label*='message' i]", 12),
+        ("textarea[aria-label*='type' i]", 11),
         # Salesforce MIAW
         ("input[name='userInput']", 15),
         (".slds-chat-composer input", 13),
@@ -311,6 +333,10 @@ async def probe_page(url: str) -> dict:
     ]
 
     SEND_PATTERNS = [
+        # Microsoft Bot Framework Web Chat
+        ("button.webchat__send-button", 16),
+        (".webchat__send-button", 15),
+        ("[class*='webchat'][class*='send-button' i]", 14),
         # Salesforce MIAW
         ("button[title='Send']", 15),
         (".slds-chat-composer button[type='submit']", 13),
@@ -333,6 +359,12 @@ async def probe_page(url: str) -> dict:
     ]
 
     RESPONSE_PATTERNS = [
+        # Microsoft Bot Framework Web Chat (bot / system messages)
+        (".webchat__bubble__content", 15),
+        ("[class*='webchat'][class*='bubble__content' i]", 14),
+        (".webchat__basic-transcript__activity-body", 13),
+        ("[class*='webchat'][class*='activity-body' i]", 12),
+        (".webchat__stacked-layout__content", 12),
         # Salesforce MIAW
         (".slds-chat-listitem_inbound .slds-chat-message__text", 15),
         (".slds-chat-listitem--inbound .slds-chat-message__text", 15),
@@ -383,9 +415,18 @@ async def probe_page(url: str) -> dict:
             await page.wait_for_timeout(4000)
             log_lines.append("Page loaded. Scanning iframes and main frame.")
 
-            # ── 2. Build frame list (scan ALL iframes first—chat often lives there) ──
+            # ── 2. Build frame list (DOM iframes + Playwright page.frames for Omnichannel) ──
             async def collect_frames():
-                frames = [(page, None, "main")]
+                frames: list = [(page, None, "main")]
+                seen: set[int] = set()
+
+                def _add(fr, isel, label: str) -> None:
+                    fid = id(fr)
+                    if fid in seen:
+                        return
+                    seen.add(fid)
+                    frames.append((fr, isel, label))
+
                 try:
                     all_iframes = await page.query_selector_all("iframe")
                     for el in all_iframes:
@@ -398,7 +439,6 @@ async def probe_page(url: str) -> dict:
                             name = await el.get_attribute("name") or ""
                             cls = await el.get_attribute("class") or ""
                             title = await el.get_attribute("title") or ""
-                            # Build a useful iframe selector
                             if id_:
                                 isel = f"iframe#{id_}"
                             elif name:
@@ -408,54 +448,132 @@ async def probe_page(url: str) -> dict:
                             else:
                                 isel = "iframe"
                             label = f"iframe src={src[:60]} id={id_} cls={cls[:40]}"
-                            frames.append((f, isel, label))
+                            _add(f, isel, label)
                         except Exception:
                             pass
                 except Exception:
                     pass
+
+                # Child frames not always tied to <iframe> element timing (MS Live Chat)
+                try:
+                    for fr in page.frames:
+                        if fr == page.main_frame:
+                            continue
+                        url_f = (fr.url or "").lower()
+                        if any(
+                            k in url_f
+                            for k in (
+                                "livechatwidget",
+                                "azureedge.net",
+                                "oc-cdn",
+                                "omnichannel",
+                                "directline",
+                                "botframework",
+                            )
+                        ):
+                            _add(fr, None, f"pw-frame:{(fr.url or '')[:80]}")
+                except Exception:
+                    pass
+
                 return frames
+
+            async def wait_for_chat_iframe():
+                """Omnichannel injects iframe after CTA click; wait for Azure CDN widget."""
+                try:
+                    await page.wait_for_selector(
+                        "iframe[id*='LCWidget' i], iframe[id*='Omnichannel' i], "
+                        "iframe[src*='livechatwidget' i], iframe[src*='azureedge' i]",
+                        timeout=15000,
+                    )
+                except Exception:
+                    pass
+                await page.wait_for_timeout(4000)
+
+            async def try_click_chat_by_text() -> str | None:
+                """Omnichannel uses visible text like 'Let's Chat!' — CSS selectors often miss."""
+                for label in (
+                    "Let's Chat!",
+                    "Let's Chat",
+                    "Let’s Chat",  # curly apostrophe (U+2019)
+                    "Chat with us",
+                    "Live chat",
+                    "Start chat",
+                    "Chat now",
+                ):
+                    try:
+                        loc = page.get_by_role("button", name=label, exact=False)
+                        if await loc.count() > 0:
+                            first = loc.first
+                            if await first.is_visible():
+                                await first.click(timeout=5000)
+                                return f"role:button:{label}"
+                    except Exception:
+                        pass
+                    try:
+                        loc = page.get_by_text(label, exact=False)
+                        if await loc.count() > 0:
+                            first = loc.first
+                            if await first.is_visible():
+                                await first.click(timeout=5000)
+                                return f"text:{label}"
+                    except Exception:
+                        pass
+                return None
 
             frames_to_scan = await collect_frames()
             log_lines.append(f"Found {len(frames_to_scan)} frames (including main).")
 
-            # ── 3. Try launcher buttons ────────────────────────────────────
+            # ── 3. Open chat: CSS launchers → text ("Let's Chat!") → bottom-right ──
             launcher_clicked = None
             for sel in LAUNCHER_SELECTORS:
                 try:
                     el = await page.query_selector(sel)
                     if el and await el.is_visible():
-                        await el.click(timeout=3000)
+                        await el.click(timeout=5000)
                         launcher_clicked = sel
                         log_lines.append(f"Clicked launcher: {sel}")
-                        await page.wait_for_timeout(3000)
-                        # Re-collect frames after click (new iframes may appear)
-                        frames_to_scan = await collect_frames()
                         break
                 except Exception:
                     pass
 
-            # Fallback: click any bottom-right element (chat bubbles are usually there)
+            if launcher_clicked:
+                await wait_for_chat_iframe()
+                frames_to_scan = await collect_frames()
+
+            if not launcher_clicked:
+                launcher_clicked = await try_click_chat_by_text()
+                if launcher_clicked:
+                    log_lines.append(f"Clicked launcher: {launcher_clicked}")
+                    await wait_for_chat_iframe()
+                    frames_to_scan = await collect_frames()
+
+            # Fallback: any clickable in bottom-right (FAB / care strip)
             if not launcher_clicked:
                 try:
                     clicked_br = await page.evaluate("""() => {
                         const vw = window.innerWidth, vh = window.innerHeight;
-                        const zone = { x0: vw*0.7, y0: vh*0.7, x1: vw, y1: vh };
-                        const els = document.querySelectorAll('button, [role="button"], div[class*="chat"], div[class*="launcher"]');
+                        const zone = { x0: vw*0.55, y0: vh*0.65, x1: vw, y1: vh };
+                        const sel = 'button, [role="button"], a, div[tabindex="0"], '
+                          + '[class*="care-widget"] button, [class*="care-widget"] a, '
+                          + 'section#call-out-panel button, section#call-out-panel a';
+                        const els = document.querySelectorAll(sel);
                         for (const el of els) {
+                            const t = (el.innerText || '').trim();
+                            if (t.length > 40) continue;
                             const r = el.getBoundingClientRect();
-                            if (r.width > 10 && r.height > 10 &&
+                            if (r.width > 8 && r.height > 8 &&
                                 r.right > zone.x0 && r.bottom > zone.y0 &&
                                 r.left < zone.x1 && r.top < zone.y1) {
                                 el.click();
-                                return el.outerHTML.slice(0, 120);
+                                return (t || el.tagName) + ' :: ' + el.outerHTML.slice(0, 100);
                             }
                         }
                         return null;
                     }""")
                     if clicked_br:
-                        launcher_clicked = f"[bottom-right element] {clicked_br}"
-                        log_lines.append(f"Clicked bottom-right element: {clicked_br[:80]}")
-                        await page.wait_for_timeout(3000)
+                        launcher_clicked = f"[bottom-right] {clicked_br}"
+                        log_lines.append(f"Clicked bottom-right: {clicked_br[:80]}")
+                        await wait_for_chat_iframe()
                         frames_to_scan = await collect_frames()
                 except Exception:
                     pass
@@ -610,13 +728,28 @@ async def probe_page(url: str) -> dict:
             found_count = sum(1 for k in ["input", "send", "response"] if best[k])
             log_lines.append(f"Done. Found {found_count}/3 selector types.")
 
+            # Parent <iframe> for MS Omnichannel (widget is inside; BrowserSession needs this)
+            omni_iframe_sel = ""
+            try:
+                ms_if_el = await page.query_selector(
+                    "iframe[id*='LCWidget' i], iframe[id*='Omnichannel' i], "
+                    "iframe[src*='livechatwidget' i], iframe[src*='azureedge' i]"
+                )
+                if ms_if_el:
+                    iid = await ms_if_el.get_attribute("id")
+                    if iid:
+                        omni_iframe_sel = f"iframe#{iid}"
+                        log_lines.append(f"Omnichannel iframe selector: {omni_iframe_sel}")
+            except Exception:
+                pass
+
             suggested = {
                 "input_selector": best["input"]["selector"] if best["input"] else "",
                 "send_selector": best["send"]["selector"] if best["send"] else "",
                 "response_selector": best["response"]["selector"] if best["response"] else "",
-                "iframe_selector": best["iframe"] or "",
-                "load_wait_ms": 3000,
-                "wait_after_send_ms": 6000,
+                "iframe_selector": (best["iframe"] or omni_iframe_sel) or "",
+                "load_wait_ms": 4500,
+                "wait_after_send_ms": 8000,
             }
 
             return {
