@@ -73,6 +73,7 @@ export default function RunsPage() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [deletingRun, setDeletingRun] = useState<string | null>(null);
   const [cancellingRun, setCancellingRun] = useState<string | null>(null);
+  const [showStartRun, setShowStartRun] = useState(false);
 
   // Annotation state
   const [annotating, setAnnotating] = useState<string | null>(null);
@@ -112,8 +113,8 @@ export default function RunsPage() {
     }
   }, [connId]);
 
-  async function handleDeleteRun(runId: string, e: React.MouseEvent) {
-    e.stopPropagation();
+  async function handleDeleteRun(runId: string, e?: React.MouseEvent) {
+    e?.stopPropagation();
     if (!confirm("Delete this run and all its results?")) return;
     setDeletingRun(runId);
     try {
@@ -142,16 +143,23 @@ export default function RunsPage() {
     } finally { setCancellingRun(null); }
   }
 
-  async function handleCreateRun() {
-    if (!runProjectId || !runAgentId) { alert("Select a project and agent."); return; }
+  async function handleCreateRun(): Promise<boolean> {
+    if (!runProjectId || !runAgentId) {
+      alert("Select a project and agent.");
+      return false;
+    }
     setCreating(true);
     try {
       const run = await api.createRun({ project_id: runProjectId, agent_id: runAgentId });
       setRuns((prev) => [run, ...prev]);
       await selectRun(run);
+      return true;
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : "Failed to start run");
-    } finally { setCreating(false); }
+      return false;
+    } finally {
+      setCreating(false);
+    }
   }
 
   function startStreaming(runId: string) {
@@ -331,20 +339,84 @@ export default function RunsPage() {
 
   const otherRuns = runs.filter((r) => r.id !== selectedRun?.id);
 
+  function clearRunSelection() {
+    stopStream();
+    setSelectedRun(null);
+    setResults([]);
+    setReport(null);
+    setExpanded(null);
+    setAnnotating(null);
+    setShowCompare(false);
+    setComparison(null);
+  }
+
+  const sortedRuns = [...runs].sort((a, b) => {
+    const ta = a.started_at ? new Date(a.started_at).getTime() : 0;
+    const tb = b.started_at ? new Date(b.started_at).getTime() : 0;
+    if (tb !== ta) return tb - ta;
+    return b.id.localeCompare(a.id);
+  });
+
   return (
-    <div className="flex h-full">
-      {/* Sidebar */}
-      <aside className="w-72 shrink-0 border-r border-gray-200 dark:border-gray-800 flex flex-col bg-white dark:bg-gray-900">
-        <div className="p-4 border-b border-gray-200 dark:border-gray-800">
-          <h2 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Start New Run</h2>
+    <div className="flex flex-1 min-h-0 h-full flex-col min-w-0 bg-gray-50/80 dark:bg-gray-950/40">
+      <div className="shrink-0 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 px-3 sm:px-4 py-3 flex flex-wrap items-center gap-2 sm:gap-3">
+        <label htmlFor="run-select" className="text-xs font-medium text-gray-600 dark:text-gray-300 shrink-0">
+          Run
+        </label>
+        <select
+          id="run-select"
+          className={`${SELECT_CLS} flex-1 min-w-[10rem] sm:min-w-[14rem] max-w-2xl`}
+          value={selectedRun?.id ?? ""}
+          onChange={(e) => {
+            const id = e.target.value;
+            if (!id) {
+              clearRunSelection();
+              return;
+            }
+            const r = runs.find((x) => x.id === id);
+            if (r) void selectRun(r);
+          }}
+        >
+          <option value="">
+            {runs.length === 0 ? "No runs yet — start one below" : "Choose a run…"}
+          </option>
+          {sortedRuns.map((r) => {
+            const pname = projects.find((p) => p.id === r.project_id)?.name ?? "Project";
+            return (
+              <option key={r.id} value={r.id}>
+                {r.id.slice(0, 8)}… — {pname} — {r.status} ({r.completed_questions}/{r.total_questions})
+              </option>
+            );
+          })}
+        </select>
+        <button
+          type="button"
+          onClick={() => setShowStartRun((v) => !v)}
+          className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded hover:bg-indigo-700 shrink-0"
+        >
+          {showStartRun ? "Close" : "Start run"}
+        </button>
+      </div>
+
+      {showStartRun && (
+        <div className="shrink-0 p-4 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 max-w-xl">
+          <p className="text-xs font-semibold text-gray-900 dark:text-white mb-3">Start new run</p>
           <div className="flex flex-col gap-2">
             <select value={runProjectId} onChange={(e) => setRunProjectId(e.target.value)} className={SELECT_CLS}>
               <option value="">Select Project</option>
-              {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              {projects.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
             </select>
             <select value={connId} onChange={(e) => setConnId(e.target.value)} className={SELECT_CLS}>
               <option value="">Select Connection</option>
-              {connections.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              {connections.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
             </select>
             <select
               value={runAgentId}
@@ -353,10 +425,18 @@ export default function RunsPage() {
               className={SELECT_CLS}
             >
               <option value="">Select Agent</option>
-              {connAgents.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+              {connAgents.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.name}
+                </option>
+              ))}
             </select>
             <button
-              onClick={handleCreateRun}
+              type="button"
+              onClick={async () => {
+                const ok = await handleCreateRun();
+                if (ok) setShowStartRun(false);
+              }}
               disabled={creating || !runProjectId || !runAgentId}
               className="w-full text-xs bg-indigo-600 text-white py-2 rounded-lg hover:bg-indigo-700 disabled:opacity-50 font-medium"
             >
@@ -364,45 +444,9 @@ export default function RunsPage() {
             </button>
           </div>
         </div>
+      )}
 
-        <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-1">
-          <p className="text-xs text-gray-400 px-2 py-1">Recent Runs</p>
-          {runs.map((r) => (
-            <div key={r.id} className="group relative">
-              <button
-                onClick={() => selectRun(r)}
-                className={`w-full text-left px-3 py-2 rounded-lg transition-colors pr-8 ${
-                  selectedRun?.id === r.id
-                    ? "bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300"
-                    : "hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300"
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  <span className={`w-2 h-2 rounded-full shrink-0 ${statusDot(r.status)}`} />
-                  <span className="text-xs font-mono truncate">{r.id.slice(0, 8)}...</span>
-                </div>
-                <div className="text-xs text-gray-400 mt-0.5 ml-4 capitalize">
-                  {r.status} — {r.completed_questions}/{r.total_questions}
-                </div>
-              </button>
-              <button
-                onClick={(e) => handleDeleteRun(r.id, e)}
-                disabled={deletingRun === r.id}
-                title="Delete run"
-                className="absolute right-1 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 disabled:opacity-30"
-              >
-                {deletingRun === r.id ? "…" : "✕"}
-              </button>
-            </div>
-          ))}
-          {runs.length === 0 && (
-            <p className="text-xs text-gray-400 text-center py-8">No runs yet</p>
-          )}
-        </div>
-      </aside>
-
-      {/* Main */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto min-h-0">
         {selectedRun ? (
           <div className="p-6 flex flex-col gap-4">
             {/* Run header */}
@@ -786,8 +830,8 @@ export default function RunsPage() {
             )}
           </div>
         ) : (
-          <div className="h-full flex items-center justify-center text-sm text-gray-400">
-            Start a run or select one from the list
+          <div className="h-full min-h-[12rem] flex flex-col items-center justify-center gap-2 px-4 text-center text-sm text-gray-400">
+            <p>Select a run from the menu above, or open <strong className="text-gray-600 dark:text-gray-300">Start run</strong> to create one.</p>
           </div>
         )}
       </div>

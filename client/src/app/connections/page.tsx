@@ -23,6 +23,7 @@ export default function ConnectionsPage() {
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
   const [deletingConn, setDeletingConn] = useState(false);
+  const [deletingAgentId, setDeletingAgentId] = useState<string | null>(null);
   const [showEditConn, setShowEditConn] = useState(false);
   const [editConnForm, setEditConnForm] = useState({ name: "", domain: "", consumer_key: "", consumer_secret: "" });
   const [savingConn, setSavingConn] = useState(false);
@@ -295,6 +296,34 @@ export default function ConnectionsPage() {
     } finally { setDeletingConn(false); }
   }
 
+  async function handleDeleteAgent(agent: api.Agent) {
+    if (!confirm(`Delete agent "${agent.name}"? This cannot be undone.`)) return;
+    setDeletingAgentId(agent.id);
+    try {
+      if (chatAgent?.id === agent.id && sessionId) {
+        await api.endSession(chatAgent.id, sessionId).catch(() => {});
+      }
+      await api.deleteAgent(agent.id);
+      setAgents((prev) => prev.filter((x) => x.id !== agent.id));
+      if (chatAgent?.id === agent.id) {
+        setChatAgent(null);
+        setMessages([]);
+        setSessionId(null);
+      }
+      if (manualChatAgent?.id === agent.id) {
+        setManualChatAgent(null);
+        setManualChatMessages([]);
+        setManualChatSession(null);
+        setManualChatInput("");
+      }
+      if (editingAgent?.id === agent.id) setEditingAgent(null);
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Failed to delete agent");
+    } finally {
+      setDeletingAgentId(null);
+    }
+  }
+
   function openEditConn() {
     if (!selected) return;
     setEditConnForm({ name: selected.name, domain: selected.domain, consumer_key: "", consumer_secret: "" });
@@ -472,120 +501,141 @@ export default function ConnectionsPage() {
   const field = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement>) =>
     setForm((prev) => ({ ...prev, [k]: e.target.value }));
 
+  function clearConnectionSelection() {
+    setSelected(null);
+    setAgents([]);
+    setChatAgent(null);
+    setMessages([]);
+    setSessionId(null);
+    setTestResult(null);
+    setManualChatAgent(null);
+    setManualChatMessages([]);
+    setManualChatSession(null);
+    setManualChatInput("");
+    setEditingAgent(null);
+  }
+
+  const sortedConnections = [...connections].sort((a, b) =>
+    a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
+  );
+
   return (
-    <div className="flex flex-1 min-h-0 h-full">
-      {/* Sidebar */}
-      <aside className="w-64 shrink-0 border-r border-gray-200 dark:border-gray-800 flex flex-col bg-white dark:bg-gray-900">
-        <div className="p-4 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Connections</h2>
-          <button
-            onClick={() => setShowForm((v) => !v)}
-            className="text-xs bg-indigo-600 text-white px-2 py-1 rounded hover:bg-indigo-700"
-          >
-            + Add
-          </button>
-        </div>
+    <div className="flex flex-1 min-h-0 h-full flex-col min-w-0 bg-gray-50/80 dark:bg-gray-950/40">
+      <div className="shrink-0 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 px-3 sm:px-4 py-3 flex flex-wrap items-center gap-2 sm:gap-3">
+        <label htmlFor="connection-select" className="text-xs font-medium text-gray-600 dark:text-gray-300 shrink-0">
+          Connection
+        </label>
+        <select
+          id="connection-select"
+          className={`${INPUT_CLS} flex-1 min-w-[10rem] sm:min-w-[14rem] max-w-2xl`}
+          value={selected?.id ?? ""}
+          onChange={(e) => {
+            const id = e.target.value;
+            if (!id) {
+              clearConnectionSelection();
+              return;
+            }
+            const c = connections.find((x) => x.id === id);
+            if (c) void selectConnection(c);
+          }}
+        >
+          <option value="">
+            {connections.length === 0 ? "No connections — add one below" : "Choose a connection…"}
+          </option>
+          {sortedConnections.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.connection_type === "http" ? "🌐 " : c.connection_type === "browser" ? "🤖 " : "⚡ "}
+              {c.name}
+              {" — "}
+              {c.connection_type === "http" ? "HTTP API" : c.connection_type === "browser" ? "Browser" : c.domain || "Salesforce"}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          onClick={() => setShowForm((v) => !v)}
+          className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded hover:bg-indigo-700 shrink-0"
+        >
+          {showForm ? "Close" : "+ Add"}
+        </button>
+      </div>
 
-        {showForm && (
-          <div className="p-3 border-b border-gray-200 dark:border-gray-800 flex flex-col gap-2">
-            {/* Type selector */}
-            <div className="flex gap-1 p-0.5 bg-gray-100 dark:bg-gray-800 rounded-lg">
-              {(["salesforce", "http", "browser"] as const).map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setConnType(t)}
-                  className={`flex-1 text-xs py-1 rounded-md font-medium transition-colors ${connType === t ? "bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm" : "text-gray-500 dark:text-gray-400 hover:text-gray-700"}`}
-                >
-                  {t === "salesforce" ? "⚡ Salesforce" : t === "http" ? "🌐 HTTP API" : "🤖 Browser"}
-                </button>
-              ))}
-            </div>
+      {showForm && (
+        <div className="shrink-0 p-3 sm:p-4 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 flex flex-col gap-2 max-w-3xl">
+          <p className="text-xs font-semibold text-gray-700 dark:text-gray-300">New connection</p>
+          <div className="flex gap-1 p-0.5 bg-gray-100 dark:bg-gray-800 rounded-lg">
+            {(["salesforce", "http", "browser"] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setConnType(t)}
+                className={`flex-1 text-xs py-1 rounded-md font-medium transition-colors ${connType === t ? "bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm" : "text-gray-500 dark:text-gray-400 hover:text-gray-700"}`}
+              >
+                {t === "salesforce" ? "⚡ Salesforce" : t === "http" ? "🌐 HTTP API" : "🤖 Browser"}
+              </button>
+            ))}
+          </div>
 
-            <input placeholder="Connection Name" value={form.name} onChange={field("name")} className={INPUT_CLS} />
+          <input placeholder="Connection Name" value={form.name} onChange={field("name")} className={INPUT_CLS} />
 
-            {connType === "salesforce" ? (
-              <>
-                <input placeholder="Domain (e.g. org.my.salesforce.com)" value={form.domain} onChange={field("domain")} className={INPUT_CLS} />
-                <input placeholder="Consumer Key" value={form.consumer_key} onChange={field("consumer_key")} className={INPUT_CLS} />
-                <input type="password" placeholder="Consumer Secret" value={form.consumer_secret} onChange={field("consumer_secret")} className={INPUT_CLS} />
-              </>
-            ) : connType === "http" ? (
-              <>
-                <select value={httpForm.auth_type} onChange={(e) => setHttpForm((f) => ({ ...f, auth_type: e.target.value }))} className={INPUT_CLS}>
-                  <option value="none">No Auth</option>
-                  <option value="bearer">Bearer Token</option>
-                  <option value="api_key">API Key (header)</option>
-                  <option value="basic">Basic Auth</option>
-                </select>
-                {httpForm.auth_type !== "none" && (
-                  <input
-                    placeholder={httpForm.auth_type === "bearer" ? "Token value (without 'Bearer ')" : httpForm.auth_type === "basic" ? "user:password" : "API key value"}
-                    value={httpForm.auth_value}
-                    onChange={(e) => setHttpForm((f) => ({ ...f, auth_value: e.target.value }))}
-                    className={INPUT_CLS}
-                  />
-                )}
+          {connType === "salesforce" ? (
+            <>
+              <input placeholder="Domain (e.g. org.my.salesforce.com)" value={form.domain} onChange={field("domain")} className={INPUT_CLS} />
+              <input placeholder="Consumer Key" value={form.consumer_key} onChange={field("consumer_key")} className={INPUT_CLS} />
+              <input type="password" placeholder="Consumer Secret" value={form.consumer_secret} onChange={field("consumer_secret")} className={INPUT_CLS} />
+            </>
+          ) : connType === "http" ? (
+            <>
+              <select value={httpForm.auth_type} onChange={(e) => setHttpForm((f) => ({ ...f, auth_type: e.target.value }))} className={INPUT_CLS}>
+                <option value="none">No Auth</option>
+                <option value="bearer">Bearer Token</option>
+                <option value="api_key">API Key (header)</option>
+                <option value="basic">Basic Auth</option>
+              </select>
+              {httpForm.auth_type !== "none" && (
                 <input
-                  placeholder="Test URL (optional — used for Test Connection)"
-                  value={httpForm.test_url}
-                  onChange={(e) => setHttpForm((f) => ({ ...f, test_url: e.target.value }))}
+                  placeholder={httpForm.auth_type === "bearer" ? "Token value (without 'Bearer ')" : httpForm.auth_type === "basic" ? "user:password" : "API key value"}
+                  value={httpForm.auth_value}
+                  onChange={(e) => setHttpForm((f) => ({ ...f, auth_value: e.target.value }))}
                   className={INPUT_CLS}
                 />
-                <p className="text-[10px] text-gray-400">Add agents after saving to configure individual endpoint URLs.</p>
-              </>
-            ) : (
-              <>
-                <p className="text-[10px] text-indigo-600 dark:text-indigo-400 font-medium">No API key needed — drives a real browser to interact with any chat widget.</p>
-                <p className="text-[10px] text-gray-400">Save the connection, then add agents with the target URL and CSS selectors.</p>
-              </>
-            )}
-
-            <div className="flex gap-2">
-              <button
-                onClick={handleSave}
-                disabled={saving}
-                className="flex-1 text-xs bg-indigo-600 text-white py-1.5 rounded hover:bg-indigo-700 disabled:opacity-50"
-              >
-                {saving ? "Saving..." : "Save"}
-              </button>
-              <button
-                onClick={() => setShowForm(false)}
-                className="flex-1 text-xs text-gray-600 dark:text-gray-400 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
-
-        <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-1">
-          {connections.map((c) => (
-            <button
-              key={c.id}
-              onClick={() => selectConnection(c)}
-              className={`w-full text-left px-3 py-2 rounded-lg transition-colors ${
-                selected?.id === c.id
-                  ? "bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300"
-                  : "hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300"
-              }`}
-            >
-              <div className="flex items-center gap-1.5">
-                <span className="text-[10px] shrink-0">{c.connection_type === "http" ? "🌐" : c.connection_type === "browser" ? "🤖" : "⚡"}</span>
-                <span className="text-sm font-medium truncate">{c.name}</span>
-              </div>
-              <div className="text-xs text-gray-400 truncate">
-                {c.connection_type === "http" ? "HTTP API" : c.connection_type === "browser" ? "Browser Automation" : c.domain}
-              </div>
-            </button>
-          ))}
-          {connections.length === 0 && (
-            <p className="text-xs text-gray-400 text-center py-8">No connections yet</p>
+              )}
+              <input
+                placeholder="Test URL (optional — used for Test Connection)"
+                value={httpForm.test_url}
+                onChange={(e) => setHttpForm((f) => ({ ...f, test_url: e.target.value }))}
+                className={INPUT_CLS}
+              />
+              <p className="text-[10px] text-gray-400">Add agents after saving to configure individual endpoint URLs.</p>
+            </>
+          ) : (
+            <>
+              <p className="text-[10px] text-indigo-600 dark:text-indigo-400 font-medium">No API key needed — drives a real browser to interact with any chat widget.</p>
+              <p className="text-[10px] text-gray-400">Save the connection, then add agents with the target URL and CSS selectors.</p>
+            </>
           )}
-        </div>
-      </aside>
 
-      {/* Main */}
-      <div className="flex-1 flex flex-col min-w-0">
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={saving}
+              className="flex-1 text-xs bg-indigo-600 text-white py-1.5 rounded hover:bg-indigo-700 disabled:opacity-50"
+            >
+              {saving ? "Saving..." : "Save"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowForm(false)}
+              className="flex-1 text-xs text-gray-600 dark:text-gray-400 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="flex-1 flex flex-col min-h-0 min-w-0">
         {selected ? (
           <>
             {/* Connection header */}
@@ -717,6 +767,15 @@ export default function ConnectionsPage() {
                           Test
                         </button>
                       )}
+                      <button
+                        type="button"
+                        onClick={() => void handleDeleteAgent(a)}
+                        disabled={deletingAgentId === a.id}
+                        title="Remove this agent"
+                        className="text-xs px-2 py-1.5 border border-red-200 dark:border-red-900 rounded hover:bg-red-50 dark:hover:bg-red-950/30 text-red-600 dark:text-red-400 shrink-0 disabled:opacity-50"
+                      >
+                        {deletingAgentId === a.id ? "…" : "Delete"}
+                      </button>
                     </div>
                   ))}
                 </div>
@@ -1564,8 +1623,8 @@ export default function ConnectionsPage() {
             )}
           </>
         ) : (
-          <div className="flex-1 flex items-center justify-center text-sm text-gray-400">
-            Select a connection from the left panel
+          <div className="flex-1 flex flex-col items-center justify-center gap-2 px-4 text-center text-sm text-gray-400">
+            <p>Select a connection from the menu above, or use <strong className="text-gray-600 dark:text-gray-300">+ Add</strong> to create one.</p>
           </div>
         )}
       </div>

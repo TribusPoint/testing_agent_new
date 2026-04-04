@@ -165,80 +165,97 @@ export default function ProjectsPage() {
   const TABS: Tab[] = ["personas", "dimensions", "profiles", "questions"];
   const tabCount = { personas: personas.length, dimensions: dimensions.length, profiles: profiles.length, questions: questions.length };
 
+  function clearProjectSelection() {
+    setSelected(null);
+    setPersonas([]);
+    setDimensions([]);
+    setProfiles([]);
+    setQuestions([]);
+    setShowEditProject(false);
+  }
+
+  const sortedProjects = [...projects].sort((a, b) =>
+    a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
+  );
+
   return (
-    <div className="flex h-full">
-      {/* Sidebar */}
-      <aside className="w-64 shrink-0 border-r border-gray-200 dark:border-gray-800 flex flex-col bg-white dark:bg-gray-900">
-        <div className="p-4 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between">
-          <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Projects</h2>
-          <button
-            onClick={() => setShowForm((v) => !v)}
-            className="text-xs bg-indigo-600 text-white px-2 py-1 rounded hover:bg-indigo-700"
-          >
-            + New
-          </button>
-        </div>
-
-        {showForm && (
-          <div className="p-3 border-b border-gray-200 dark:border-gray-800 flex flex-col gap-2">
-            {[
-              { k: "name", label: "Project Name *" },
-              { k: "company_name", label: "Company Name" },
-              { k: "industry", label: "Industry" },
-              { k: "company_websites", label: "Websites" },
-              { k: "competitors", label: "Competitors" },
-            ].map(({ k, label }) => (
-              <input
-                key={k}
-                placeholder={label}
-                value={form[k as keyof typeof form]}
-                onChange={(e) => setForm((f) => ({ ...f, [k]: e.target.value }))}
-                className={INPUT_CLS}
-              />
-            ))}
-            <div className="flex gap-2">
-              <button
-                onClick={handleSave}
-                disabled={saving}
-                className="flex-1 text-xs bg-indigo-600 text-white py-1.5 rounded hover:bg-indigo-700 disabled:opacity-50"
-              >
-                {saving ? "Saving..." : "Save"}
-              </button>
-              <button
-                onClick={() => setShowForm(false)}
-                className="flex-1 text-xs text-gray-600 dark:text-gray-400 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800"
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
-
-        <div className="flex-1 overflow-y-auto p-2 flex flex-col gap-1">
-          {projects.map((p) => (
-            <button
-              key={p.id}
-              onClick={() => setSelected(p)}
-              className={`w-full text-left px-3 py-2 rounded-lg transition-colors ${
-                selected?.id === p.id
-                  ? "bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300"
-                  : "hover:bg-gray-100 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300"
-              }`}
-            >
-              <div className="text-sm font-medium truncate">{p.name}</div>
-              {p.company_name && (
-                <div className="text-xs text-gray-400 truncate">{p.company_name}</div>
-              )}
-            </button>
+    <div className="flex flex-1 min-h-0 h-full flex-col min-w-0 bg-gray-50/80 dark:bg-gray-950/40">
+      <div className="shrink-0 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 px-3 sm:px-4 py-3 flex flex-wrap items-center gap-2 sm:gap-3">
+        <label htmlFor="project-select" className="text-xs font-medium text-gray-600 dark:text-gray-300 shrink-0">
+          Project
+        </label>
+        <select
+          id="project-select"
+          className={`${INPUT_CLS} flex-1 min-w-[10rem] sm:min-w-[14rem] max-w-2xl`}
+          value={selected?.id ?? ""}
+          onChange={(e) => {
+            const id = e.target.value;
+            if (!id) {
+              clearProjectSelection();
+              return;
+            }
+            const p = projects.find((x) => x.id === id);
+            if (p) setSelected(p);
+          }}
+        >
+          <option value="">
+            {projects.length === 0 ? "No projects — create one below" : "Choose a project…"}
+          </option>
+          {sortedProjects.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+              {p.company_name ? ` — ${p.company_name}` : ""}
+            </option>
           ))}
-          {projects.length === 0 && (
-            <p className="text-xs text-gray-400 text-center py-8">No projects yet</p>
-          )}
-        </div>
-      </aside>
+        </select>
+        <button
+          type="button"
+          onClick={() => setShowForm((v) => !v)}
+          className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded hover:bg-indigo-700 shrink-0"
+        >
+          {showForm ? "Close" : "+ New"}
+        </button>
+      </div>
 
-      {/* Main */}
-      <div className="flex-1 overflow-y-auto">
+      {showForm && (
+        <div className="shrink-0 p-3 sm:p-4 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 flex flex-col gap-2 max-w-3xl">
+          <p className="text-xs font-semibold text-gray-700 dark:text-gray-300">New project</p>
+          {[
+            { k: "name", label: "Project Name *" },
+            { k: "company_name", label: "Company Name" },
+            { k: "industry", label: "Industry" },
+            { k: "company_websites", label: "Websites" },
+            { k: "competitors", label: "Competitors" },
+          ].map(({ k, label }) => (
+            <input
+              key={k}
+              placeholder={label}
+              value={form[k as keyof typeof form]}
+              onChange={(e) => setForm((f) => ({ ...f, [k]: e.target.value }))}
+              className={INPUT_CLS}
+            />
+          ))}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={saving}
+              className="flex-1 text-xs bg-indigo-600 text-white py-1.5 rounded hover:bg-indigo-700 disabled:opacity-50"
+            >
+              {saving ? "Saving..." : "Save"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowForm(false)}
+              className="flex-1 text-xs text-gray-600 dark:text-gray-400 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="flex-1 overflow-y-auto min-h-0">
         {selected ? (
           <div className="p-6 flex flex-col gap-5">
             {/* Project info */}
@@ -539,8 +556,8 @@ export default function ProjectsPage() {
             </div>
           </div>
         ) : (
-          <div className="h-full flex items-center justify-center text-sm text-gray-400">
-            Select a project or create a new one
+          <div className="h-full min-h-[12rem] flex flex-col items-center justify-center gap-2 px-4 text-center text-sm text-gray-400">
+            <p>Select a project from the menu above, or use <strong className="text-gray-600 dark:text-gray-300">+ New</strong> to create one.</p>
           </div>
         )}
       </div>
