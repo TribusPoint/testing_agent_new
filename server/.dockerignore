@@ -1,0 +1,17 @@
+__pycache__
+*.py[cod]
+.Python
+.venv
+venv
+.env
+.env.*
+!.env.example
+.git
+.gitignore
+.pytest_cache
+.mypy_cache
+.ruff_cache
+htmlcov
+*.md
+.DS_Store
+railway.json
