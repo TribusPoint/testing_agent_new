@@ -11,6 +11,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
+    libxml2-dev \
+    libxslt1-dev \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
