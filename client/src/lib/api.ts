@@ -165,6 +165,8 @@ export const discoverRuntimeIds = (connId: string) =>
     instructions: string;
   }>(`/api/connections/${connId}/agents/runtime-ids`);
 
+export const deleteAgent = (agentId: string) => del(`/api/agents/${agentId}`);
+
 export const chatWithAgent = (agentId: string, message: string, sessionId?: string) =>
   req<{ session_id: string; response: string; is_new_session: boolean }>(
     `/api/agents/${agentId}/chat`,

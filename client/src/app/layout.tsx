@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
-import NavLinks from "@/components/nav-links";
+import SidebarNav from "@/components/sidebar-nav";
 import "./globals.css";
 
 const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
@@ -14,18 +14,11 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${geistSans.variable} ${geistMono.variable} h-full`}>
-      <body className="h-full flex flex-col bg-gray-50 dark:bg-gray-950 font-sans">
-        <header className="shrink-0 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800">
-          <div className="max-w-screen-xl mx-auto px-6 h-14 flex items-center gap-8">
-            <span className="font-bold text-indigo-600 text-sm tracking-tight">
-              Testing Agent
-            </span>
-            <NavLinks />
-          </div>
-        </header>
-        <main className="flex-1 min-h-0 max-w-screen-xl mx-auto w-full flex flex-col">
-          {children}
-        </main>
+      <body className="h-full flex flex-col overflow-hidden bg-gray-50 dark:bg-gray-950 font-sans">
+        <div className="flex flex-1 min-h-0">
+          <SidebarNav />
+          <main className="flex-1 min-h-0 flex flex-col overflow-hidden w-full min-w-0">{children}</main>
+        </div>
       </body>
     </html>
   );

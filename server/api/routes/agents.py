@@ -331,6 +331,15 @@ async def get_agent(agent_id: str, db: AsyncSession = Depends(get_db)):
     return agent
 
 
+@router.delete("/api/agents/{agent_id}", status_code=204)
+async def delete_agent(agent_id: str, db: AsyncSession = Depends(get_db)):
+    agent = await db.get(Agent, agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+    await db.delete(agent)
+    await db.commit()
+
+
 @router.patch("/api/agents/{agent_id}", response_model=AgentResponse)
 async def update_agent(agent_id: str, body: AgentUpdate, db: AsyncSession = Depends(get_db)):
     agent = await db.get(Agent, agent_id)
