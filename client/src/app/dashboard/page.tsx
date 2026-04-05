@@ -106,7 +106,7 @@ export default function DashboardPage() {
   }, [selectedAgent]);
 
   return (
-    <div className="max-w-5xl mx-auto p-6 flex flex-col gap-8">
+    <div className="flex-1 min-h-0 h-full overflow-y-auto p-6 flex flex-col gap-8 bg-gray-50/80 dark:bg-gray-950/40">
       <div>
         <h1 className="text-xl font-bold text-gray-900 dark:text-white">
           Dashboard

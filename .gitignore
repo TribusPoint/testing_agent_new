@@ -4,6 +4,8 @@ dist/
 .env*.local
 .env.production
 *.tsbuildinfo
+pnpm-lock.yaml
+yarn.lock
 
 # Python
 __pycache__/

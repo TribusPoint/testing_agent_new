@@ -253,8 +253,29 @@ export const listRunResults = (runId: string) =>
   req<RunResult[]>(`/api/runs/${runId}/results`);
 export const getRunReport = (runId: string) =>
   req<RunReport>(`/api/runs/${runId}/report`);
-export const exportRunCsv = (runId: string) =>
-  `${BASE}/api/runs/${runId}/export`;
+export const exportRunCsv = async (runId: string) => {
+  const key = getStoredKey();
+  const res = await fetch(`${BASE}/api/runs/${runId}/export`, {
+    headers: key ? { "X-API-Key": key } : {},
+  });
+  if (res.status === 401) {
+    if (typeof window !== "undefined") window.location.href = "/settings";
+    throw new Error("Unauthorized");
+  }
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ detail: res.statusText }));
+    throw new Error(body.detail ?? "Export failed");
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `run-${runId}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
 export const annotateResult = (runId: string, resultId: string, body: { human_score: number | null; human_notes: string | null }) =>
   req<{ ok: boolean }>(`/api/runs/${runId}/results/${resultId}/annotate`, {
     method: "PATCH",

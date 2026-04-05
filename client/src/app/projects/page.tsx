@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import * as api from "@/lib/api";
 import TstAgntTable, { type TstAgntColumnConfig } from "@/components/ui/tst-agnt-table";
+import { usePersistedState } from "@/lib/usePersistedState";
 
 type Tab = "personas" | "dimensions" | "profiles" | "questions";
 
@@ -14,8 +15,9 @@ const SELECT_CLS =
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<api.Project[]>([]);
   const [selected, setSelected] = useState<api.Project | null>(null);
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({
+  const [selectedProjectId, setSelectedProjectId] = usePersistedState<string | null>("projects:selectedId", null);
+  const [showForm, setShowForm] = usePersistedState("projects:showForm", false);
+  const [form, setForm] = usePersistedState("projects:form", {
     name: "", company_name: "", industry: "",
     competitors: "", company_websites: "", description: "",
   });
@@ -26,16 +28,17 @@ export default function ProjectsPage() {
   const [savingProject, setSavingProject] = useState(false);
 
   const [connections, setConnections] = useState<api.Connection[]>([]);
-  const [connId, setConnId] = useState("");
+  const [connId, setConnId] = usePersistedState("projects:connId", "");
   const [connAgents, setConnAgents] = useState<api.Agent[]>([]);
-  const [genAgentId, setGenAgentId] = useState("");
+  const [genAgentId, setGenAgentId] = usePersistedState("projects:genAgentId", "");
 
   const [personas, setPersonas] = useState<api.Persona[]>([]);
   const [dimensions, setDimensions] = useState<api.Dimension[]>([]);
   const [profiles, setProfiles] = useState<api.PersonalityProfile[]>([]);
   const [questions, setQuestions] = useState<api.Question[]>([]);
   const [genLoading, setGenLoading] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>("personas");
+  const [genAllStep, setGenAllStep] = useState<string | null>(null);
+  const [tab, setTab] = usePersistedState<Tab>("projects:tab", "personas");
   const [editingExpected, setEditingExpected] = useState<string | null>(null);
   const [expectedDraft, setExpectedDraft] = useState("");
   const [savingExpected, setSavingExpected] = useState(false);
@@ -80,12 +83,29 @@ export default function ProjectsPage() {
   useEffect(() => {
     loadProjects();
     api.listConnections().then(setConnections).catch(() => {});
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Restore selected project from persisted ID
+  useEffect(() => {
+    if (selectedProjectId && projects.length > 0 && !selected) {
+      const restored = projects.find((p) => p.id === selectedProjectId);
+      if (restored) setSelected(restored);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projects, selectedProjectId]);
+
+  // Track if this is initial mount to avoid clearing persisted agent selection
+  const isInitialConnMount = useRef(true);
 
   useEffect(() => {
     if (connId) {
       api.listAgents(connId).then(setConnAgents).catch(() => setConnAgents([]));
-      setGenAgentId("");
+      // Only clear agent selection if user manually changed connection
+      if (!isInitialConnMount.current) {
+        setGenAgentId("");
+      }
+      isInitialConnMount.current = false;
     }
   }, [connId]);
 
@@ -105,6 +125,7 @@ export default function ProjectsPage() {
       await api.deleteProject(selected.id);
       setProjects((prev) => prev.filter((p) => p.id !== selected.id));
       setSelected(null);
+      setSelectedProjectId(null);
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : "Delete failed");
     } finally { setDeletingProject(false); }
@@ -199,16 +220,48 @@ export default function ProjectsPage() {
     } finally { setGenLoading(null); }
   }
 
+  async function generateAll() {
+    if (!selected) return;
+    if (!genAgentId) {
+      alert("Select an agent first (required for personas and questions).");
+      return;
+    }
+    const steps = ["personas", "dimensions", "profiles", "questions"];
+    setGenLoading("all");
+    try {
+      for (const step of steps) {
+        setGenAllStep(step);
+        if (step === "personas") await api.generatePersonas(selected.id, genAgentId);
+        else if (step === "dimensions") await api.generateDimensions(selected.id);
+        else if (step === "profiles") await api.generateProfiles(selected.id);
+        else if (step === "questions") await api.generateQuestions(selected.id, genAgentId);
+        await loadContextData(selected.id);
+      }
+      setTab("questions");
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Generation failed");
+    } finally {
+      setGenLoading(null);
+      setGenAllStep(null);
+    }
+  }
+
   const TABS: Tab[] = ["personas", "dimensions", "profiles", "questions"];
   const tabCount = { personas: personas.length, dimensions: dimensions.length, profiles: profiles.length, questions: questions.length };
 
   function clearProjectSelection() {
     setSelected(null);
+    setSelectedProjectId(null);
     setPersonas([]);
     setDimensions([]);
     setProfiles([]);
     setQuestions([]);
     setShowEditProject(false);
+  }
+
+  function selectProject(proj: api.Project) {
+    setSelected(proj);
+    setSelectedProjectId(proj.id);
   }
 
   const sortedProjects = [...projects].sort((a, b) =>
@@ -329,7 +382,7 @@ export default function ProjectsPage() {
               enableSearch={true}
               searchPlaceholder="Search projects..."
               pagination={{ enabled: true, rowsPerPage: 10 }}
-              onRowClick={(row) => setSelected(row._proj)}
+              onRowClick={(row) => selectProject(row._proj)}
               selectedRowId={selected?.id ?? null}
               emptyState={
                 <p className="text-xs text-gray-400 py-4">
@@ -451,6 +504,14 @@ export default function ProjectsPage() {
                     </select>
                   </div>
                   <div className="flex gap-2 flex-wrap">
+                    <button
+                      onClick={() => generateAll()}
+                      disabled={genLoading !== null}
+                      className="text-xs px-3 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50 font-semibold"
+                    >
+                      {genLoading === "all" ? `Generating ${genAllStep}...` : "Gen All"}
+                    </button>
+                    <span className="border-l border-gray-300 dark:border-gray-600 mx-1" />
                     {TABS.map((type) => (
                       <button
                         key={type}
@@ -464,7 +525,10 @@ export default function ProjectsPage() {
                   </div>
                   {genLoading && (
                     <p className="text-xs text-gray-400 mt-2">
-                      Generating {genLoading}... this may take 15–30 seconds.
+                      {genLoading === "all" 
+                        ? `Generating all (${genAllStep})... this may take 1-2 minutes.`
+                        : `Generating ${genLoading}... this may take 15–30 seconds.`
+                      }
                     </p>
                   )}
                 </div>

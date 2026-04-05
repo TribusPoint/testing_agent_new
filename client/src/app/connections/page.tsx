@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import * as api from "@/lib/api";
 import TstAgntTable, { type TstAgntColumnConfig } from "@/components/ui/tst-agnt-table";
+import { usePersistedState } from "@/lib/usePersistedState";
 
 type Msg = { role: "user" | "agent" | "error"; text: string };
 
@@ -11,14 +12,15 @@ const INPUT_CLS =
 export default function ConnectionsPage() {
   const [connections, setConnections] = useState<api.Connection[]>([]);
   const [selected, setSelected] = useState<api.Connection | null>(null);
+  const [selectedConnId, setSelectedConnId] = usePersistedState<string | null>("connections:selectedId", null);
   const [agents, setAgents] = useState<api.Agent[]>([]);
   const [chatAgent, setChatAgent] = useState<api.Agent | null>(null);
   const [testResult, setTestResult] = useState<{ ok: boolean; msg: string } | null>(null);
 
-  const [showForm, setShowForm] = useState(false);
-  const [connType, setConnType] = useState<"salesforce" | "http" | "browser">("salesforce");
-  const [form, setForm] = useState({ name: "", domain: "", consumer_key: "", consumer_secret: "" });
-  const [httpForm, setHttpForm] = useState({ auth_type: "none", auth_value: "", test_url: "" });
+  const [showForm, setShowForm] = usePersistedState("connections:showForm", false);
+  const [connType, setConnType] = usePersistedState<"salesforce" | "http" | "browser">("connections:connType", "salesforce");
+  const [form, setForm] = usePersistedState("connections:form", { name: "", domain: "", consumer_key: "", consumer_secret: "" });
+  const [httpForm, setHttpForm] = usePersistedState("connections:httpForm", { auth_type: "none", auth_value: "", test_url: "" });
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -105,6 +107,16 @@ export default function ConnectionsPage() {
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => { loadConnections(); }, []);
+
+  // Restore selected connection from persisted ID
+  useEffect(() => {
+    if (selectedConnId && connections.length > 0 && !selected) {
+      const restored = connections.find((c) => c.id === selectedConnId);
+      if (restored) selectConnection(restored);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connections, selectedConnId]);
+
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
@@ -118,6 +130,7 @@ export default function ConnectionsPage() {
 
   async function selectConnection(c: api.Connection) {
     setSelected(c);
+    setSelectedConnId(c.id);
     setChatAgent(null);
     setMessages([]);
     setSessionId(null);
@@ -290,8 +303,7 @@ export default function ConnectionsPage() {
     try {
       await api.deleteConnection(selected.id);
       setConnections((prev) => prev.filter((c) => c.id !== selected.id));
-      setSelected(null);
-      setAgents([]);
+      clearConnectionSelection();
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : "Delete failed");
     } finally { setDeletingConn(false); }
@@ -504,6 +516,7 @@ export default function ConnectionsPage() {
 
   function clearConnectionSelection() {
     setSelected(null);
+    setSelectedConnId(null);
     setAgents([]);
     setChatAgent(null);
     setMessages([]);
