@@ -1,6 +1,7 @@
 "use client";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import * as api from "@/lib/api";
+import TstAgntTable, { type TstAgntColumnConfig } from "@/components/ui/tst-agnt-table";
 
 type Msg = { role: "user" | "agent" | "error"; text: string };
 
@@ -519,44 +520,191 @@ export default function ConnectionsPage() {
     a.name.localeCompare(b.name, undefined, { sensitivity: "base" })
   );
 
-  return (
-    <div className="flex flex-1 min-h-0 h-full flex-col min-w-0 bg-gray-50/80 dark:bg-gray-950/40">
-      <div className="shrink-0 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 px-3 sm:px-4 py-3 flex flex-wrap items-center gap-2 sm:gap-3">
-        <label htmlFor="connection-select" className="text-xs font-medium text-gray-600 dark:text-gray-300 shrink-0">
-          Connection
-        </label>
-        <select
-          id="connection-select"
-          className={`${INPUT_CLS} flex-1 min-w-[10rem] sm:min-w-[14rem] max-w-2xl`}
-          value={selected?.id ?? ""}
-          onChange={(e) => {
-            const id = e.target.value;
-            if (!id) {
-              clearConnectionSelection();
-              return;
-            }
-            const c = connections.find((x) => x.id === id);
-            if (c) void selectConnection(c);
-          }}
+  // ── Resizable panel ────────────────────────────────────────────────────────
+  const [leftWidth, setLeftWidth] = useState(320); // px
+  const isDragging = useRef(false);
+  const dragStartX = useRef(0);
+  const dragStartWidth = useRef(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const onDragStart = useCallback((e: React.MouseEvent) => {
+    isDragging.current = true;
+    dragStartX.current = e.clientX;
+    dragStartWidth.current = leftWidth;
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+  }, [leftWidth]);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!isDragging.current || !containerRef.current) return;
+      const delta = e.clientX - dragStartX.current;
+      const containerW = containerRef.current.getBoundingClientRect().width;
+      const next = Math.min(Math.max(dragStartWidth.current + delta, 200), containerW - 320);
+      setLeftWidth(next);
+    };
+    const onUp = () => {
+      if (!isDragging.current) return;
+      isDragging.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, []);
+
+  // Connections table rows & columns
+  const connTableRows = sortedConnections.map((c) => ({
+    id: c.id,
+    name: c.name,
+    type: c.connection_type ?? "salesforce",
+    domain: c.connection_type === "http" ? "HTTP API" : c.domain || "Salesforce",
+    _conn: c,
+  }));
+
+  const connTableColumns: TstAgntColumnConfig<typeof connTableRows[number]>[] = [
+    {
+      key: "name",
+      label: "Name",
+      sortable: true,
+      searchable: true,
+      renderCell: (value, row) => (
+        <span className={`font-medium text-sm ${selected?.id === row._conn.id ? "text-indigo-600 dark:text-indigo-400" : "text-gray-900 dark:text-white"}`}>
+          {String(value)}
+        </span>
+      ),
+    },
+    {
+      key: "type",
+      label: "Type",
+      sortable: true,
+      renderCell: (value) => (
+        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium ${
+          value === "http"
+            ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+            : value === "browser"
+            ? "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300"
+            : "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300"
+        }`}>
+          {value === "http" ? "🌐" : value === "browser" ? "🤖" : "⚡"} {String(value)}
+        </span>
+      ),
+    },
+    {
+      key: "domain",
+      label: "Domain / URL",
+      searchable: true,
+      renderCell: (value) => (
+        <span className="text-xs text-gray-400 truncate max-w-[160px] block">{String(value || "—")}</span>
+      ),
+    },
+  ];
+
+  // Agents table data & columns (computed outside JSX to avoid IIFE + TS type in JSX)
+  const agentTableRows = agents.map((a) => ({
+    id: a.id,
+    name: a.name,
+    type: a.agent_type ?? "salesforce",
+    identifier:
+      a.agent_type === "http"
+        ? ((a.config as api.HttpAgentConfig)?.endpoint ?? "")
+        : a.agent_type === "browser"
+        ? (((a.config as Record<string, unknown>)?.url as string) ?? "")
+        : (a.salesforce_id ?? ""),
+    _agent: a,
+  }));
+
+  const agentTableColumns: TstAgntColumnConfig<typeof agentTableRows[number]>[] = [
+    { key: "name", label: "Name", sortable: true, searchable: true },
+    {
+      key: "type",
+      label: "Type",
+      sortable: true,
+      renderCell: (value) => (
+        <span
+          className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-medium ${
+            value === "http"
+              ? "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300"
+              : value === "browser"
+              ? "bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300"
+              : "bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300"
+          }`}
         >
-          <option value="">
-            {connections.length === 0 ? "No connections — add one below" : "Choose a connection…"}
-          </option>
-          {sortedConnections.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.connection_type === "http" ? "🌐 " : c.connection_type === "browser" ? "🤖 " : "⚡ "}
-              {c.name}
-              {" — "}
-              {c.connection_type === "http" ? "HTTP API" : c.connection_type === "browser" ? "Browser" : c.domain || "Salesforce"}
-            </option>
-          ))}
-        </select>
+          {String(value)}
+        </span>
+      ),
+    },
+    {
+      key: "identifier",
+      label: "ID / Endpoint",
+      searchable: true,
+      renderCell: (value) => (
+        <span className="font-mono text-[10px] text-gray-400 truncate max-w-[180px] block">
+          {String(value || "—")}
+        </span>
+      ),
+    },
+    {
+      key: "id",
+      label: "Actions",
+      renderCell: (_value, row) => {
+        const a = row._agent;
+        return (
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={(e) => { e.stopPropagation(); openEditAgent(a); }}
+              className="text-xs px-2 py-1 border border-gray-200 dark:border-gray-700 rounded hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-500"
+            >
+              Edit
+            </button>
+            {a.agent_type === "browser" ? (
+              <button
+                onClick={(e) => { e.stopPropagation(); handleScreenshot(a.id); }}
+                disabled={takingScreenshot}
+                title="Take a screenshot to verify the page loads"
+                className="text-xs px-2 py-1 border border-purple-300 dark:border-purple-700 rounded hover:bg-purple-50 dark:hover:bg-purple-900/20 text-purple-600 dark:text-purple-400 disabled:opacity-50"
+              >
+                {takingScreenshot ? "..." : "📸"}
+              </button>
+            ) : (
+              <button
+                onClick={(e) => { e.stopPropagation(); setManualChatAgent(a); setManualChatMessages([]); setManualChatSession(null); setEditingAgent(null); }}
+                title="Manually send questions one at a time"
+                className="text-xs px-2 py-1 border border-orange-300 dark:border-orange-700 rounded hover:bg-orange-50 dark:hover:bg-orange-900/20 text-orange-600 dark:text-orange-400"
+              >
+                Test
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); void handleDeleteAgent(a); }}
+              disabled={deletingAgentId === a.id}
+              title="Remove this agent"
+              className="text-xs px-2 py-1 border border-red-200 dark:border-red-900 rounded hover:bg-red-50 dark:hover:bg-red-950/30 text-red-600 dark:text-red-400 disabled:opacity-50"
+            >
+              {deletingAgentId === a.id ? "…" : "Delete"}
+            </button>
+          </div>
+        );
+      },
+    },
+  ];
+
+  return (
+    <div className="flex flex-1 min-h-0 h-full flex-col min-w-0 bg-gray-50 dark:bg-gray-950">
+      {/* Top bar */}
+      <div className="shrink-0 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 px-4 py-3 flex items-center justify-between gap-3">
+        <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Connections</h2>
         <button
           type="button"
           onClick={() => setShowForm((v) => !v)}
           className="text-xs bg-indigo-600 text-white px-3 py-1.5 rounded hover:bg-indigo-700 shrink-0"
         >
-          {showForm ? "Close" : "+ Add"}
+          {showForm ? "✕ Close" : "+ Add"}
         </button>
       </div>
 
@@ -635,11 +783,54 @@ export default function ConnectionsPage() {
         </div>
       )}
 
-      <div className="flex-1 flex flex-col min-h-0 min-w-0">
+      {/* Master-detail split */}
+      <div ref={containerRef} className="flex-1 flex min-h-0 min-w-0">
+
+        {/* LEFT: Connections list */}
+        <div
+          className={`${selected ? "hidden md:flex" : "flex"} flex-col shrink-0 border-r border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900`}
+          style={{ width: leftWidth }}
+        >
+          <div className="flex-1 overflow-y-auto p-3">
+            <TstAgntTable
+              data={connTableRows}
+              columns={connTableColumns}
+              enableSearch={true}
+              searchPlaceholder="Search connections..."
+              pagination={{ enabled: true, rowsPerPage: 10 }}
+              onRowClick={(row) => void selectConnection(row._conn)}
+              selectedRowId={selected?.id ?? null}
+              emptyState={
+                <p className="text-xs text-gray-400 py-4">
+                  No connections yet — use <strong>+ Add</strong> above to create one.
+                </p>
+              }
+            />
+          </div>
+        </div>
+
+        {/* Drag handle */}
+        <div
+          onMouseDown={onDragStart}
+          className="hidden md:flex w-1.5 shrink-0 cursor-col-resize items-center justify-center group hover:bg-indigo-100 dark:hover:bg-indigo-900/30 active:bg-indigo-200 dark:active:bg-indigo-800/40 transition-colors"
+          title="Drag to resize"
+        >
+          <div className="w-px h-8 rounded-full bg-gray-300 dark:bg-gray-600 group-hover:bg-indigo-400 dark:group-hover:bg-indigo-500 transition-colors" />
+        </div>
+
+        {/* RIGHT: Detail panel */}
+        <div className={`${selected ? "flex" : "hidden md:flex"} flex-1 flex-col min-h-0 min-w-0`}>
         {selected ? (
           <>
             {/* Connection header */}
             <div className="p-4 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 flex items-center justify-between shrink-0">
+              <button
+                onClick={clearConnectionSelection}
+                className="md:hidden mr-2 p-1 rounded text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800"
+                title="Back to list"
+              >
+                ←
+              </button>
               <div>
                 <h3 className="text-sm font-semibold text-gray-900 dark:text-white">{selected.name}</h3>
                 <p className="text-xs text-gray-400">{selected.domain}</p>
@@ -719,68 +910,23 @@ export default function ConnectionsPage() {
               </div>
             )}
 
-            {/* Agents */}
-            {agents.length > 0 && (
-              <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shrink-0">
-                <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">
-                  Agents ({agents.length}) — {selected?.connection_type === "salesforce" ? "click to chat, Edit to fix Salesforce ID" : selected?.connection_type === "browser" ? "click to chat, 📸 to verify page" : "click to chat"}
-                </p>
-                <div className="flex flex-col gap-1.5">
-                  {agents.map((a) => (
-                    <div key={a.id} className="flex items-center gap-2">
-                      <button
-                        onClick={() => selectAgent(a)}
-                        className={`flex-1 min-w-0 text-left text-xs px-3 py-2 rounded-lg border transition-colors ${
-                          chatAgent?.id === a.id
-                            ? "bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 border-indigo-400"
-                            : "bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:border-indigo-400"
-                        }`}
-                      >
-                        <span className="font-medium">{a.name}</span>
-                        {a.agent_type === "http" ? (
-                          <span className="text-gray-400 ml-2 text-[10px] truncate">{(a.config as api.HttpAgentConfig)?.endpoint ?? ""}</span>
-                        ) : (
-                          <span className="text-gray-400 ml-2 font-mono text-[10px]">{a.salesforce_id}</span>
-                        )}
-                      </button>
-                      <button
-                        onClick={() => openEditAgent(a)}
-                        className="text-xs px-2 py-1.5 border border-gray-200 dark:border-gray-700 rounded hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-500 shrink-0"
-                      >
-                        Edit
-                      </button>
-                      {a.agent_type === "browser" ? (
-                        <button
-                          onClick={() => handleScreenshot(a.id)}
-                          disabled={takingScreenshot}
-                          title="Take a screenshot to verify the page loads"
-                          className="text-xs px-2 py-1.5 border border-purple-300 dark:border-purple-700 rounded hover:bg-purple-50 dark:hover:bg-purple-900/20 text-purple-600 dark:text-purple-400 shrink-0 disabled:opacity-50"
-                        >
-                          {takingScreenshot ? "..." : "📸"}
-                        </button>
-                      ) : (
-                        <button
-                          onClick={() => { setManualChatAgent(a); setManualChatMessages([]); setManualChatSession(null); setEditingAgent(null); }}
-                          title="Manually send questions one at a time"
-                          className="text-xs px-2 py-1.5 border border-orange-300 dark:border-orange-700 rounded hover:bg-orange-50 dark:hover:bg-orange-900/20 text-orange-600 dark:text-orange-400 shrink-0"
-                        >
-                          Test
-                        </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => void handleDeleteAgent(a)}
-                        disabled={deletingAgentId === a.id}
-                        title="Remove this agent"
-                        className="text-xs px-2 py-1.5 border border-red-200 dark:border-red-900 rounded hover:bg-red-50 dark:hover:bg-red-950/30 text-red-600 dark:text-red-400 shrink-0 disabled:opacity-50"
-                      >
-                        {deletingAgentId === a.id ? "…" : "Delete"}
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+            {/* Agents Table */}
+            <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shrink-0">
+              <TstAgntTable
+                data={agentTableRows}
+                columns={agentTableColumns}
+                tableTitle={`Agents (${agents.length})`}
+                enableSearch={true}
+                searchPlaceholder="Search agents..."
+                pagination={{ enabled: true, rowsPerPage: 10 }}
+                onRowClick={(row) => selectAgent(row._agent)}
+                emptyState={
+                  <p className="text-xs text-gray-400">
+                    No agents yet — add one below.
+                  </p>
+                }
+              />
+            </div>
 
             {/* Screenshot result */}
             {screenshotResult && (
@@ -1624,9 +1770,10 @@ export default function ConnectionsPage() {
           </>
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center gap-2 px-4 text-center text-sm text-gray-400">
-            <p>Select a connection from the menu above, or use <strong className="text-gray-600 dark:text-gray-300">+ Add</strong> to create one.</p>
+            <p className="hidden md:block">Select a connection from the list on the left.</p>
           </div>
         )}
+        </div>
       </div>
     </div>
   );
