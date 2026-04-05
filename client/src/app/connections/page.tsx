@@ -626,7 +626,7 @@ export default function ConnectionsPage() {
       a.agent_type === "http"
         ? ((a.config as api.HttpAgentConfig)?.endpoint ?? "")
         : a.agent_type === "browser"
-        ? (((a.config as Record<string, unknown>)?.url as string) ?? "")
+        ? (((a.config as unknown as Record<string, unknown>)?.url as string) ?? "")
         : (a.salesforce_id ?? ""),
     _agent: a,
   }));
