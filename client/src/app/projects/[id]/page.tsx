@@ -337,21 +337,74 @@ function ProjectDetailView({ projectId }: { projectId: string }) {
 
   return (
     <div className="flex flex-1 min-h-0 h-full flex-col min-w-0 bg-gray-50 dark:bg-gray-950">
-      <header className="shrink-0 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 px-4 py-3 flex items-center gap-3 min-w-0">
-        <Link
-          href="/projects"
-          className="text-xs text-gray-500 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 shrink-0 font-medium"
-        >
-          ← Projects
-        </Link>
-        <span className="text-gray-300 dark:text-gray-600 select-none" aria-hidden>
-          /
-        </span>
-        <h1 className="text-sm font-semibold text-gray-900 dark:text-white truncate min-w-0">{selected.name}</h1>
+      <header className="shrink-0 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 px-4 py-3 flex items-center justify-between gap-3 min-w-0">
+        <div className="flex items-center gap-3 min-w-0">
+          <Link
+            href="/projects"
+            className="text-xs text-gray-500 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 shrink-0 font-medium"
+          >
+            ← Projects
+          </Link>
+          <span className="text-gray-300 dark:text-gray-600 select-none" aria-hidden>
+            /
+          </span>
+          <h1 className="text-sm font-semibold text-gray-900 dark:text-white truncate min-w-0">{selected.name}</h1>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={openEditProject}
+            className="text-xs px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-700 dark:text-gray-300"
+          >
+            Edit project
+          </button>
+          <button
+            type="button"
+            onClick={handleDeleteProject}
+            disabled={deletingProject}
+            className="text-xs px-3 py-1.5 text-red-600 dark:text-red-400 border border-red-200 dark:border-red-900 rounded-md hover:bg-red-50 dark:hover:bg-red-950/30 disabled:opacity-40"
+          >
+            {deletingProject ? "Deleting…" : "Delete"}
+          </button>
+        </div>
       </header>
 
       <div className="flex-1 overflow-y-auto min-h-0">
         <div className="p-4 sm:p-6 flex flex-col gap-4 max-w-6xl mx-auto w-full">
+                {showEditProject && (
+                  <div className="rounded-xl border border-indigo-200 dark:border-indigo-900/50 bg-white dark:bg-gray-900 p-4 shadow-sm">
+                    <div className="flex items-center justify-between gap-2 mb-3">
+                      <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Edit project parameters</h2>
+                      <button
+                        type="button"
+                        onClick={() => setShowEditProject(false)}
+                        className="text-xs text-gray-500 hover:text-gray-800 dark:hover:text-gray-300"
+                      >
+                        Close
+                      </button>
+                    </div>
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-3">
+                      Name, company, industry, websites, competitors, and description are used for generation and site analysis.
+                    </p>
+                    <div className="flex flex-col gap-2 max-w-xl">
+                      <input placeholder="Project name *" value={editProjectForm.name} onChange={(e) => setEditProjectForm((f) => ({ ...f, name: e.target.value }))} className={INPUT_CLS} />
+                      <input placeholder="Company name" value={editProjectForm.company_name} onChange={(e) => setEditProjectForm((f) => ({ ...f, company_name: e.target.value }))} className={INPUT_CLS} />
+                      <input placeholder="Industry" value={editProjectForm.industry} onChange={(e) => setEditProjectForm((f) => ({ ...f, industry: e.target.value }))} className={INPUT_CLS} />
+                      <input placeholder="Websites (URLs, comma or space separated)" value={editProjectForm.company_websites} onChange={(e) => setEditProjectForm((f) => ({ ...f, company_websites: e.target.value }))} className={INPUT_CLS} />
+                      <input placeholder="Competitors" value={editProjectForm.competitors} onChange={(e) => setEditProjectForm((f) => ({ ...f, competitors: e.target.value }))} className={INPUT_CLS} />
+                      <textarea placeholder="Description" rows={3} value={editProjectForm.description} onChange={(e) => setEditProjectForm((f) => ({ ...f, description: e.target.value }))} className={INPUT_CLS + " resize-none"} />
+                      <div className="flex gap-2 pt-1">
+                        <button type="button" onClick={handleSaveProject} disabled={savingProject || !editProjectForm.name.trim()} className="text-xs bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 disabled:opacity-50">
+                          {savingProject ? "Saving…" : "Save changes"}
+                        </button>
+                        <button type="button" onClick={() => setShowEditProject(false)} className="text-xs text-gray-600 dark:text-gray-400 px-4 py-2 rounded-lg border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800">
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {/* Summary metrics */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   {[
@@ -421,47 +474,14 @@ function ProjectDetailView({ projectId }: { projectId: string }) {
                       </button>
                     </div>
                     <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-4">
-                      <div className="flex items-center justify-between mb-3">
-                        <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Project details</h3>
-                        <div className="flex gap-2">
-                          <button
-                            type="button"
-                            onClick={openEditProject}
-                            className="text-xs px-3 py-1 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-400"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            type="button"
-                            onClick={handleDeleteProject}
-                            disabled={deletingProject}
-                            className="text-xs px-3 py-1 text-red-500 border border-red-200 dark:border-red-900 rounded-md hover:bg-red-50 dark:hover:bg-red-950/30 disabled:opacity-40"
-                          >
-                            {deletingProject ? "Deleting..." : "Delete"}
-                          </button>
-                        </div>
-                      </div>
-                      {showEditProject && (
-                        <div className="mb-4 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg flex flex-col gap-2">
-                          <input placeholder="Project name *" value={editProjectForm.name} onChange={(e) => setEditProjectForm((f) => ({ ...f, name: e.target.value }))} className={INPUT_CLS} />
-                          <input placeholder="Company name" value={editProjectForm.company_name} onChange={(e) => setEditProjectForm((f) => ({ ...f, company_name: e.target.value }))} className={INPUT_CLS} />
-                          <input placeholder="Industry" value={editProjectForm.industry} onChange={(e) => setEditProjectForm((f) => ({ ...f, industry: e.target.value }))} className={INPUT_CLS} />
-                          <input placeholder="Websites" value={editProjectForm.company_websites} onChange={(e) => setEditProjectForm((f) => ({ ...f, company_websites: e.target.value }))} className={INPUT_CLS} />
-                          <input placeholder="Competitors" value={editProjectForm.competitors} onChange={(e) => setEditProjectForm((f) => ({ ...f, competitors: e.target.value }))} className={INPUT_CLS} />
-                          <textarea placeholder="Description" rows={2} value={editProjectForm.description} onChange={(e) => setEditProjectForm((f) => ({ ...f, description: e.target.value }))} className={INPUT_CLS + " resize-none"} />
-                          <div className="flex gap-2">
-                            <button type="button" onClick={handleSaveProject} disabled={savingProject || !editProjectForm.name.trim()} className="text-xs bg-indigo-600 text-white px-4 py-1.5 rounded hover:bg-indigo-700 disabled:opacity-50">
-                              {savingProject ? "Saving..." : "Save"}
-                            </button>
-                            <button type="button" onClick={() => setShowEditProject(false)} className="text-xs text-gray-500 px-3 py-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800">
-                              Cancel
-                            </button>
-                          </div>
-                        </div>
-                      )}
+                      <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">Project details</h3>
+                      <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-3">
+                        To change the project name, websites, or company fields, use <strong>Edit project</strong> in the top bar.
+                      </p>
                       <dl className="grid grid-cols-2 gap-x-6 gap-y-2">
                         {(
                           [
+                            ["Description", selected.description],
                             ["Company", selected.company_name],
                             ["Industry", selected.industry],
                             ["Websites", selected.company_websites],
@@ -470,9 +490,9 @@ function ProjectDetailView({ projectId }: { projectId: string }) {
                         )
                           .filter(([, v]) => v)
                           .map(([k, v]) => (
-                            <div key={k}>
+                            <div key={k} className={k === "Description" ? "col-span-2" : ""}>
                               <dt className="text-xs text-gray-400">{k}</dt>
-                              <dd className="text-sm text-gray-900 dark:text-white">{v}</dd>
+                              <dd className="text-sm text-gray-900 dark:text-white whitespace-pre-wrap">{v}</dd>
                             </div>
                           ))}
                       </dl>

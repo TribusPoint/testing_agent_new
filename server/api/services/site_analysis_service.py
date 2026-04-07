@@ -83,8 +83,15 @@ async def fetch_page_text(url: str) -> str:
     except httpx.InvalidURL as e:
         raise ValueError(f"Invalid website URL: {url!r}") from e
     except httpx.ConnectError as e:
+        err = str(e).lower()
+        typo_hint = ""
+        if "name or service not known" in err or "nodename nor servname" in err:
+            typo_hint = (
+                " If the site works in your browser, verify the hostname spelling "
+                "(typos like standford vs stanford cause DNS failures). "
+            )
         raise ValueError(
-            f"Could not reach {final_url} (DNS or network). "
+            f"Could not reach {final_url} (DNS or network).{typo_hint}"
             "Use a public https URL with a resolvable hostname—not localhost or an internal name. "
             f"Details: {e!s}"
         ) from e
