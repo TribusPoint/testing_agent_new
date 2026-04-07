@@ -294,14 +294,38 @@ export default function RunsPage() {
       }
     } else if (type === "run_complete" || type === "run_failed") {
       const finalStatus = type === "run_failed" ? "failed" : ((event.status as string) ?? "completed");
-      setRuns((prev) => prev.map((r) => r.id === runId ? { ...r, status: finalStatus } : r));
-      setSelectedRun((prev) => prev?.id === runId ? { ...prev, status: finalStatus } : prev);
+      const failMsg =
+        type === "run_failed"
+          ? (typeof event.error === "string"
+              ? event.error
+              : event.error != null
+                ? JSON.stringify(event.error)
+                : null)
+          : null;
+      setRuns((prev) =>
+        prev.map((r) =>
+          r.id === runId
+            ? { ...r, status: finalStatus, last_error: failMsg ?? r.last_error }
+            : r
+        )
+      );
+      setSelectedRun((prev) =>
+        prev?.id === runId
+          ? { ...prev, status: finalStatus, last_error: failMsg ?? prev.last_error }
+          : prev
+      );
       stopStream();
-      // Fetch final results and report
-      Promise.allSettled([api.listRunResults(runId), api.getRunReport(runId)]).then(([res, rep]) => {
-        if (res.status === "fulfilled") setResults(res.value);
-        if (rep.status === "fulfilled") setReport(rep.value);
-      });
+      Promise.allSettled([api.getRun(runId), api.listRunResults(runId), api.getRunReport(runId)]).then(
+        ([runRes, res, rep]) => {
+          if (runRes.status === "fulfilled") {
+            const u = runRes.value;
+            setRuns((prev) => prev.map((r) => (r.id === runId ? { ...r, ...u } : r)));
+            setSelectedRun((prev) => (prev?.id === runId ? { ...prev, ...u } : prev));
+          }
+          if (res.status === "fulfilled") setResults(res.value);
+          if (rep.status === "fulfilled") setReport(rep.value);
+        }
+      );
     }
   }
 
@@ -319,10 +343,15 @@ export default function RunsPage() {
     if (run.status === "completed" || run.status === "failed") {
       setLoadingResults(true);
       try {
-        const [res, rep] = await Promise.allSettled([
+        const [fresh, res, rep] = await Promise.allSettled([
+          api.getRun(run.id),
           api.listRunResults(run.id),
           api.getRunReport(run.id),
         ]);
+        if (fresh.status === "fulfilled") {
+          setSelectedRun(fresh.value);
+          setRuns((prev) => prev.map((r) => (r.id === run.id ? { ...r, ...fresh.value } : r)));
+        }
         if (res.status === "fulfilled") setResults(res.value);
         if (rep.status === "fulfilled") setReport(rep.value);
       } finally { setLoadingResults(false); }
@@ -572,6 +601,30 @@ export default function RunsPage() {
               <span className="mx-2">|</span>
               <span><b>Agent:</b> {allAgents.find((a) => a.id === selectedRun.agent_id)?.name ?? selectedRun.agent_id}</span>
             </div>
+
+            {selectedRun.status === "failed" ? (
+              <div
+                role="alert"
+                className="mb-3 rounded-lg border border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-950/30 px-3 py-2 text-xs text-red-800 dark:text-red-200"
+              >
+                <p className="font-semibold mb-1">Run stopped before questions were executed</p>
+                {selectedRun.last_error ? (
+                  <p className="font-mono text-[11px] leading-relaxed whitespace-pre-wrap break-words">
+                    {selectedRun.last_error}
+                  </p>
+                ) : (
+                  <p className="text-[11px]">
+                    No error detail stored for this run. Usually the worker could not log in to Salesforce
+                    before the first question. Check server logs and <strong>Connections</strong> (domain, key,
+                    secret), then start a new run after deploying the latest API.
+                  </p>
+                )}
+                <p className="mt-2 text-[11px] text-red-700/90 dark:text-red-300/90">
+                  For Salesforce: use the org hostname only (no <code className="text-[10px]">https://</code>).
+                  Ensure <strong>OPENAI_API_KEY</strong> is set on the server for follow-ups and scoring.
+                </p>
+              </div>
+            ) : null}
 
             <div className="flex items-center gap-4 mb-3">
               <span className="text-sm text-gray-900 dark:text-white font-medium">

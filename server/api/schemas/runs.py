@@ -17,6 +17,7 @@ class RunResponse(BaseModel):
     completed_questions: int
     started_at: datetime | None
     completed_at: datetime | None
+    last_error: str | None = None
 
     model_config = {"from_attributes": True}
 

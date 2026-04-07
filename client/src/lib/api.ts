@@ -491,6 +491,8 @@ export interface Run {
   completed_questions: number;
   started_at: string | null;
   completed_at: string | null;
+  /** Populated when status is failed (e.g. Salesforce auth error before any question ran). */
+  last_error?: string | null;
 }
 export interface RunResult {
   id: string;

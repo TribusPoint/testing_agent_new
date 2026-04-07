@@ -171,6 +171,8 @@ class TestRun(Base):
     completed_questions: Mapped[int] = mapped_column(Integer, default=0)
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    # Set when the run fails before or during execution (e.g. Salesforce auth error).
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     results: Mapped[list["TestRunResult"]] = relationship(
         "TestRunResult", back_populates="run", passive_deletes=True

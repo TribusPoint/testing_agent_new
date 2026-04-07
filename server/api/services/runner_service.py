@@ -31,6 +31,13 @@ def clear_cancelled(run_id: str) -> None:
     _cancelled_runs.discard(run_id)
 
 
+def _run_error_message(exc: BaseException, max_len: int = 4000) -> str:
+    s = str(exc).strip() or repr(exc)
+    if len(s) <= max_len:
+        return s
+    return s[: max_len - 3] + "..."
+
+
 def _trim_conversation(conversation: list[dict]) -> list[dict]:
     """
     Trim conversation history to MAX_CONV_CHARS by removing oldest turns
@@ -61,11 +68,36 @@ async def execute_run(run_id: str, db: AsyncSession) -> None:
     db.expunge(run)
 
     agent = await db.get(Agent, agent_id)
+    if not agent:
+        msg = (
+            "Agent not found (it may have been deleted). "
+            "Add the agent again under Connections, then start a new run."
+        )
+        await db.execute(
+            sa_update(TestRun)
+            .where(TestRun.id == run_id)
+            .values(status="failed", last_error=msg)
+        )
+        await db.commit()
+        await publish(run_id, {"type": "run_failed", "run_id": run_id, "error": msg})
+        return
+
+    conn = await db.get(SalesforceConnection, agent.connection_id)
+    if not conn:
+        msg = "No Salesforce/API connection found for this agent."
+        await db.execute(
+            sa_update(TestRun)
+            .where(TestRun.id == run_id)
+            .values(status="failed", last_error=msg)
+        )
+        await db.commit()
+        await publish(run_id, {"type": "run_failed", "run_id": run_id, "error": msg})
+        return
+
     agent_salesforce_id = agent.salesforce_id
     agent_developer_name = agent.developer_name or ""
     agent_runtime_url = agent.runtime_url or None
     agent_config = agent.config or {}
-    conn = await db.get(SalesforceConnection, agent.connection_id)
     conn_domain = conn.domain
     conn_consumer_key = conn.consumer_key
     conn_consumer_secret = conn.consumer_secret
@@ -78,7 +110,7 @@ async def execute_run(run_id: str, db: AsyncSession) -> None:
     await db.execute(
         sa_update(TestRun)
         .where(TestRun.id == run_id)
-        .values(status="running", started_at=datetime.utcnow())
+        .values(status="running", started_at=datetime.utcnow(), last_error=None)
     )
     await db.commit()
 
@@ -102,11 +134,14 @@ async def execute_run(run_id: str, db: AsyncSession) -> None:
         try:
             token = await get_token(conn_domain, conn_consumer_key, conn_consumer_secret)
         except SalesforceError as e:
+            err = _run_error_message(e)
             await db.execute(
-                sa_update(TestRun).where(TestRun.id == run_id).values(status="failed")
+                sa_update(TestRun)
+                .where(TestRun.id == run_id)
+                .values(status="failed", last_error=err)
             )
             await db.commit()
-            await publish(run_id, {"type": "run_failed", "run_id": run_id, "error": str(e)})
+            await publish(run_id, {"type": "run_failed", "run_id": run_id, "error": err})
             return
 
     elif conn_type == "browser":
@@ -114,11 +149,14 @@ async def execute_run(run_id: str, db: AsyncSession) -> None:
             browser_session = BrowserSession(agent_config)
             await browser_session.start()
         except BrowserServiceError as e:
+            err = _run_error_message(e)
             await db.execute(
-                sa_update(TestRun).where(TestRun.id == run_id).values(status="failed")
+                sa_update(TestRun)
+                .where(TestRun.id == run_id)
+                .values(status="failed", last_error=err)
             )
             await db.commit()
-            await publish(run_id, {"type": "run_failed", "run_id": run_id, "error": str(e)})
+            await publish(run_id, {"type": "run_failed", "run_id": run_id, "error": err})
             return
 
     completed_count = 0
