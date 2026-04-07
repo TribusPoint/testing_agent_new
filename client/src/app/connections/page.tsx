@@ -100,6 +100,9 @@ export default function ConnectionsPage() {
     probes: { label: string; url: string; status: number; ok: boolean; data: unknown }[];
   } | null>(null);
 
+  // Toggle for diagnostics panel
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
+
   const [messages, setMessages] = useState<Msg[]>([]);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [input, setInput] = useState("");
@@ -389,6 +392,8 @@ export default function ConnectionsPage() {
     setChatAgent(a);
     setMessages([]);
     setSessionId(null);
+    setShowDiagnostics(false);
+    setShowAgentForm(false);
   }
 
   async function sendMessage() {
@@ -447,6 +452,8 @@ export default function ConnectionsPage() {
       developer_name: a.developer_name,
       runtime_url: a.runtime_url ?? "",
     });
+    setChatAgent(null);
+    setShowDiagnostics(false);
   }
 
   async function handleSaveAgent() {
@@ -685,7 +692,7 @@ export default function ConnectionsPage() {
               </button>
             ) : (
               <button
-                onClick={(e) => { e.stopPropagation(); setManualChatAgent(a); setManualChatMessages([]); setManualChatSession(null); setEditingAgent(null); }}
+                onClick={(e) => { e.stopPropagation(); setManualChatAgent(a); setManualChatMessages([]); setManualChatSession(null); setEditingAgent(null); setShowDiagnostics(false); }}
                 title="Manually send questions one at a time"
                 className="text-xs px-2 py-1 border border-orange-300 dark:border-orange-700 rounded hover:bg-orange-50 dark:hover:bg-orange-900/20 text-orange-600 dark:text-orange-400"
               >
@@ -877,17 +884,23 @@ export default function ConnectionsPage() {
                 )}
                 {selected?.connection_type === "salesforce" && (
                   <button
-                    onClick={() => setShowAgentForm((v) => !v)}
+                    onClick={() => { setShowAgentForm((v) => !v); setChatAgent(null); setShowDiagnostics(false); }}
                     className="text-xs px-3 py-1.5 border border-dashed border-gray-400 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-400"
                   >
                     + Add Agent
                   </button>
                 )}
                 <button
-                  onClick={openEditConn}
+                  onClick={() => { openEditConn(); setShowDiagnostics(false); }}
                   className="text-xs px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-800 text-gray-600 dark:text-gray-400"
                 >
                   Edit
+                </button>
+                <button
+                  onClick={() => { setShowDiagnostics((v) => !v); setChatAgent(null); setShowAgentForm(false); }}
+                  className={`text-xs px-3 py-1.5 border rounded-md ${showDiagnostics ? "border-amber-400 bg-amber-50 dark:bg-amber-950/30 text-amber-700 dark:text-amber-400" : "border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800"}`}
+                >
+                  {showDiagnostics ? "Hide Diagnostics" : "Diagnostics"}
                 </button>
                 <button
                   onClick={handleDeleteConn}
@@ -923,7 +936,8 @@ export default function ConnectionsPage() {
               </div>
             )}
 
-            {/* Agents Table */}
+            {/* Agents Table - hidden when diagnostics is open */}
+            {!showDiagnostics && (
             <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shrink-0">
               <TstAgntTable
                 data={agentTableRows}
@@ -940,9 +954,10 @@ export default function ConnectionsPage() {
                 }
               />
             </div>
+            )}
 
-            {/* Screenshot result */}
-            {screenshotResult && (
+            {/* Screenshot result - hidden when diagnostics is open */}
+            {!showDiagnostics && screenshotResult && (
               <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-800 bg-purple-50 dark:bg-purple-950/20 shrink-0">
                 <div className="flex items-center justify-between mb-2">
                   <p className={`text-xs font-medium ${screenshotResult.success ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}`}>
@@ -960,8 +975,8 @@ export default function ConnectionsPage() {
               </div>
             )}
 
-            {/* Edit agent form */}
-            {editingAgent && (
+            {/* Edit agent form - hidden when diagnostics is open */}
+            {!showDiagnostics && editingAgent && (
               <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-800 bg-blue-50 dark:bg-blue-950/20 shrink-0">
                 <p className="text-xs font-semibold text-blue-700 dark:text-blue-400 mb-1">
                   Edit Agent — {editingAgent.name}
@@ -1029,8 +1044,8 @@ export default function ConnectionsPage() {
               </div>
             )}
 
-            {/* Manual Chat Test Panel */}
-            {manualChatAgent && (
+            {/* Manual Chat Test Panel - hidden when diagnostics is open */}
+            {!showDiagnostics && manualChatAgent && (
               <div className="px-4 py-3 border-b border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-950/20 shrink-0">
                 <div className="flex items-center justify-between mb-2">
                   <div>
@@ -1100,15 +1115,18 @@ export default function ConnectionsPage() {
               </div>
             )}
 
-            {/* Endpoint Discovery */}
-            <div className="px-4 py-3 border-b border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/20 shrink-0">
-              <div className="flex items-center gap-3 mb-1">
-                <span className="text-xs font-semibold text-red-700 dark:text-red-400">Diagnose — Discover Available Endpoints</span>
-                <button
-                  onClick={handleDiscoverEndpoints}
-                  disabled={discoveringEndpoints}
-                  className="text-xs px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
-                >
+            {/* Diagnostics Section - collapsible */}
+            {showDiagnostics && (
+              <>
+                {/* Endpoint Discovery */}
+                <div className="px-4 py-3 border-b border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/20 shrink-0">
+                  <div className="flex items-center gap-3 mb-1">
+                    <span className="text-xs font-semibold text-red-700 dark:text-red-400">Diagnose — Discover Available Endpoints</span>
+                    <button
+                      onClick={handleDiscoverEndpoints}
+                      disabled={discoveringEndpoints}
+                      className="text-xs px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 disabled:opacity-50"
+                    >
                   {discoveringEndpoints ? "Probing…" : "Run Diagnostic"}
                 </button>
                 {endpointResult && (
@@ -1145,8 +1163,11 @@ export default function ConnectionsPage() {
                 </div>
               )}
             </div>
+              </>
+            )}
 
-            {/* Runtime ID Discovery */}
+            {/* Runtime ID Discovery — Salesforce only - hidden when diagnostics is open */}
+            {!showDiagnostics && selected?.connection_type === "salesforce" && (
             <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shrink-0">
               <div className="flex items-center gap-3 mb-1">
                 <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Find correct Agent ID</span>
@@ -1218,9 +1239,10 @@ export default function ConnectionsPage() {
                 </p>
               )}
             </div>
+            )}
 
-            {/* Browser Agent form — shown for Browser connections */}
-            {selected?.connection_type === "browser" && (
+            {/* Browser Agent form — shown for Browser connections - hidden when diagnostics is open */}
+            {!showDiagnostics && selected?.connection_type === "browser" && (
               <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shrink-0">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">🤖 Browser Agents</span>
@@ -1438,8 +1460,8 @@ export default function ConnectionsPage() {
               </div>
             )}
 
-            {/* HTTP Agent form — shown for HTTP connections */}
-            {selected?.connection_type === "http" && (
+            {/* HTTP Agent form — shown for HTTP connections - hidden when diagnostics is open */}
+            {!showDiagnostics && selected?.connection_type === "http" && (
               <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shrink-0">
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs font-semibold text-gray-700 dark:text-gray-300">🌐 HTTP Agents</span>
@@ -1500,8 +1522,8 @@ export default function ConnectionsPage() {
               </div>
             )}
 
-            {/* Manual agent add form — Salesforce only */}
-            {showAgentForm && selected?.connection_type === "salesforce" && (
+            {/* Manual agent add form — Salesforce only - hidden when diagnostics is open */}
+            {!showDiagnostics && showAgentForm && selected?.connection_type === "salesforce" && (
               <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-800 bg-amber-50 dark:bg-amber-950/20 shrink-0">
                 <p className="text-xs font-medium text-amber-700 dark:text-amber-400 mb-2">
                   Add Agent Manually
@@ -1547,8 +1569,8 @@ export default function ConnectionsPage() {
               </div>
             )}
 
-            {/* SOQL Diagnostic — Salesforce only */}
-            {selected?.connection_type === "salesforce" && <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/50 shrink-0">
+            {/* SOQL Query — Salesforce only - shown when Add Agent is open or diagnostics is closed */}
+            {(!showDiagnostics || showAgentForm) && selected?.connection_type === "salesforce" && <div className="px-4 py-3 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900/50 shrink-0">
               <p className="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">
                 SOQL Query — inspect your Salesforce org directly
               </p>
@@ -1774,11 +1796,9 @@ export default function ConnectionsPage() {
                 </div>
               </div>
             ) : (
-              <div className="flex-1 flex items-center justify-center text-sm text-gray-400">
-                {agents.length > 0
-                  ? "Select an agent above to start chatting"
-                  : "Click Sync Agents to load agents from Salesforce"}
-              </div>
+              !showDiagnostics && !showAgentForm && !editingAgent && !manualChatAgent && agents.length > 0 && (
+                <p className="text-xs text-gray-400 px-4 py-2">Select an agent above to start chatting</p>
+              )
             )}
           </>
         ) : (
