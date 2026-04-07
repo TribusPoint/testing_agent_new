@@ -1,3 +1,4 @@
+import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Body, Depends, HTTPException
@@ -22,6 +23,7 @@ from api.services.site_analysis_service import (
 )
 
 router = APIRouter(prefix="/api/projects", tags=["projects"])
+logger = logging.getLogger(__name__)
 
 
 @router.get("", response_model=list[ProjectResponse])
@@ -249,6 +251,11 @@ async def analyze_project_site(
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
+        logger.exception(
+            "analyze-site failed project_id=%s url=%s",
+            project_id,
+            url,
+        )
         raise HTTPException(
             status_code=502,
             detail=f"Site analysis failed: {e!s}",

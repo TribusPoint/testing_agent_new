@@ -68,17 +68,32 @@ async def fetch_page_text(url: str) -> str:
         "User-Agent": "TestingAgentSiteAnalyzer/1.0 (+https://github.com/testing-agent)",
         "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.8",
     }
-    async with httpx.AsyncClient(
-        timeout=_FETCH_TIMEOUT,
-        follow_redirects=True,
-        headers=headers,
-    ) as client:
-        resp = await client.get(final_url)
-        resp.raise_for_status()
-        ctype = resp.headers.get("content-type", "")
-        if "html" not in ctype.lower() and "text" not in ctype.lower():
-            raise ValueError(f"Unsupported content type: {ctype or 'unknown'}")
-        html = resp.text
+    try:
+        async with httpx.AsyncClient(
+            timeout=_FETCH_TIMEOUT,
+            follow_redirects=True,
+            headers=headers,
+        ) as client:
+            resp = await client.get(final_url)
+            resp.raise_for_status()
+            ctype = resp.headers.get("content-type", "")
+            if "html" not in ctype.lower() and "text" not in ctype.lower():
+                raise ValueError(f"Unsupported content type: {ctype or 'unknown'}")
+            html = resp.text
+    except httpx.InvalidURL as e:
+        raise ValueError(f"Invalid website URL: {url!r}") from e
+    except httpx.ConnectError as e:
+        raise ValueError(
+            f"Could not reach {final_url} (DNS or network). "
+            "Use a public https URL with a resolvable hostname—not localhost or an internal name. "
+            f"Details: {e!s}"
+        ) from e
+    except httpx.TimeoutException as e:
+        raise ValueError(f"Timed out fetching {final_url}: {e!s}") from e
+    except httpx.HTTPStatusError as e:
+        raise ValueError(
+            f"Website returned HTTP {e.response.status_code} for {final_url}"
+        ) from e
 
     soup = BeautifulSoup(html, "html.parser")
     for tag in soup(["script", "style", "noscript", "svg", "template"]):
