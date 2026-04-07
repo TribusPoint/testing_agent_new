@@ -36,7 +36,10 @@ class SalesforceConnection(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
-    agents: Mapped[list["Agent"]] = relationship("Agent", back_populates="connection")
+    # DB uses ON DELETE CASCADE on agents.connection_id; tell ORM not to null FKs first.
+    agents: Mapped[list["Agent"]] = relationship(
+        "Agent", back_populates="connection", passive_deletes=True
+    )
 
 
 class Agent(Base):
