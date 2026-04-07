@@ -1663,7 +1663,9 @@ export default function ConnectionsPage() {
                                 {Object.keys(soqlResult.records![0]).filter(k => k !== "attributes").map(k => (
                                   <th key={k} className="px-2 py-1 text-left text-gray-600 dark:text-gray-400 font-medium border border-gray-200 dark:border-gray-700">{k}</th>
                                 ))}
-                                <th className="px-2 py-1 text-gray-600 dark:text-gray-400 font-medium border border-gray-200 dark:border-gray-700"></th>
+                                <th className="px-2 py-1 text-left text-gray-600 dark:text-gray-400 font-medium border border-gray-200 dark:border-gray-700">
+                                  Actions
+                                </th>
                               </tr>
                             </thead>
                             <tbody>

@@ -182,8 +182,8 @@ function ProjectDetailView({ projectId }: { projectId: string }) {
 
   async function generate(type: string) {
     if (!selected) return;
-    if ((type === "personas" || type === "questions") && !genAgentId) {
-      alert("Select an agent first.");
+    if (type === "personas" && !genAgentId) {
+      alert("Select an agent first (personas are tied to an agent).");
       return;
     }
     setGenLoading(type);
@@ -191,7 +191,7 @@ function ProjectDetailView({ projectId }: { projectId: string }) {
       if (type === "personas") await api.generatePersonas(selected.id, genAgentId, personaGenCount);
       else if (type === "dimensions") await api.generateDimensions(selected.id);
       else if (type === "profiles") await api.generateProfiles(selected.id);
-      else if (type === "questions") await api.generateQuestions(selected.id, genAgentId);
+      else if (type === "questions") await api.generateQuestions(selected.id);
       await loadContextData(selected.id);
       if (type === "personas") setMainTab("personasTab");
       else if (type === "dimensions") setMainTab("dimensionsTab");
@@ -205,7 +205,7 @@ function ProjectDetailView({ projectId }: { projectId: string }) {
   async function generateAll() {
     if (!selected) return;
     if (!genAgentId) {
-      alert("Select an agent first (required for personas and questions).");
+      alert("Select an agent first (required for generating personas).");
       return;
     }
     const steps: GenStep[] = ["personas", "dimensions", "profiles", "questions"];
@@ -216,7 +216,7 @@ function ProjectDetailView({ projectId }: { projectId: string }) {
         if (step === "personas") await api.generatePersonas(selected.id, genAgentId, personaGenCount);
         else if (step === "dimensions") await api.generateDimensions(selected.id);
         else if (step === "profiles") await api.generateProfiles(selected.id);
-        else if (step === "questions") await api.generateQuestions(selected.id, genAgentId);
+        else if (step === "questions") await api.generateQuestions(selected.id);
         await loadContextData(selected.id);
       }
       setMainTab("questions");
@@ -481,7 +481,7 @@ function ProjectDetailView({ projectId }: { projectId: string }) {
                     <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-4">
                       <h4 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Generate context</h4>
                       <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-3">
-                        Select connection and agent, then generate dimensions, profiles, and questions. Use the <strong>Personas</strong>, <strong>Dimensions</strong>, and <strong>Profiles</strong> tabs to review generated data.
+                        Select connection and agent for <strong>personas</strong> only. Dimensions, profiles, and questions are project-wide (no connection needed). Use the other tabs to review generated data.
                       </p>
                       <div className="flex gap-2 mb-4 flex-wrap">
                         <select value={connId} onChange={(e) => setConnId(e.target.value)} className={SELECT_CLS}>
@@ -742,12 +742,15 @@ function ProjectDetailView({ projectId }: { projectId: string }) {
                 {/* ── Questions tab ── */}
                 {mainTab === "questions" && (
                   <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-4">
+                    <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-3">
+                      Questions use your project&apos;s <strong>personas</strong>, <strong>dimensions</strong>, and <strong>profiles</strong> only. Connection and agent are chosen on the <strong>Runs</strong> page when you execute a test.
+                    </p>
                     <div className="flex items-center justify-between mb-3">
                       <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Questions</h3>
                       <button
                         type="button"
                         onClick={() => generate("questions")}
-                        disabled={genLoading !== null || !genAgentId}
+                        disabled={genLoading !== null}
                         className="text-xs px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
                       >
                         {genLoading === "questions" ? "Generating..." : "Generate Questions"}
@@ -755,7 +758,7 @@ function ProjectDetailView({ projectId }: { projectId: string }) {
                     </div>
                     {questions.length === 0 ? (
                       <p className="text-xs text-gray-400">
-                        No questions yet. Add personas, dimensions, and profiles (their tabs), then generate questions from the Analysis tab or here.
+                        No questions yet. Add personas, dimensions, and profiles, then click <strong>Generate Questions</strong>.
                       </p>
                     ) : (
                       <div className="flex flex-col gap-2">

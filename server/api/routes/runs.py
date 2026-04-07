@@ -5,7 +5,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, delete as sa_delete, update as sa_update
+from sqlalchemy import select, delete as sa_delete, update as sa_update, or_
 from datetime import datetime, timezone
 from models.database import get_db, AsyncSessionLocal
 from models.tables import TestRun, TestRunResult, InitiatingQuestion
@@ -36,13 +36,19 @@ async def create_run(
         result = await db.execute(
             select(InitiatingQuestion).where(
                 InitiatingQuestion.project_id == body.project_id,
-                InitiatingQuestion.agent_id == body.agent_id,
+                or_(
+                    InitiatingQuestion.agent_id == body.agent_id,
+                    InitiatingQuestion.agent_id.is_(None),
+                ),
             )
         )
     questions = result.scalars().all()
 
     if not questions:
-        raise HTTPException(status_code=400, detail="No questions found for this project/agent.")
+        raise HTTPException(
+            status_code=400,
+            detail="No questions for this project and agent. Generate questions on the project, or pick a different agent.",
+        )
 
     # Create run record
     run = TestRun(

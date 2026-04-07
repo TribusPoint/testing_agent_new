@@ -4,8 +4,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from models.database import get_db
 from models.tables import (
-    TestProject, Agent, Persona, Dimension, DimensionValue,
-    PersonalityProfile, InitiatingQuestion,
+    TestProject,
+    Agent,
+    Persona,
+    Dimension,
+    DimensionValue,
+    PersonalityProfile,
+    InitiatingQuestion,
 )
 from api.schemas.generate import (
     GeneratePersonasRequest, GenerateDimensionsRequest,
@@ -138,20 +143,16 @@ async def gen_questions(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    agent = await db.get(Agent, body.agent_id)
-    if not agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
-
-    # Load personas for this agent
     p_result = await db.execute(
-        select(Persona).where(
-            Persona.project_id == project_id,
-            Persona.agent_id == body.agent_id,
-        )
+        select(Persona).where(Persona.project_id == project_id)
     )
-    personas = [p.name for p in p_result.scalars().all()]
+    all_persona_rows = list(p_result.scalars().all())
+    personas = [p.name for p in all_persona_rows if p.name]
     if not personas:
-        raise HTTPException(status_code=400, detail="No personas found for this agent. Generate personas first.")
+        raise HTTPException(
+            status_code=400,
+            detail="No personas in this project. Add or generate personas on the Personas tab first.",
+        )
 
     # Load dimensions + values
     d_result = await db.execute(
@@ -175,10 +176,14 @@ async def gen_questions(
     if not profile_names:
         raise HTTPException(status_code=400, detail="No personality profiles found. Generate profiles first.")
 
+    eval_subject = project.name
+    if project.company_name:
+        eval_subject = f"{project.name} ({project.company_name})"
+
     questions = await generate_initiating_questions(
         company_name=project.company_name or "",
         industry=project.industry or "",
-        agent_name=agent.name,
+        evaluation_subject=eval_subject,
         personas=personas,
         dim_values=dim_values,
         profile_names=profile_names,
@@ -189,7 +194,7 @@ async def gen_questions(
     for q in questions:
         obj = InitiatingQuestion(
             project_id=project_id,
-            agent_id=body.agent_id,
+            agent_id=None,
             question=q["question"],
             persona=q.get("persona"),
             dimension=q.get("dimension"),

@@ -13,7 +13,7 @@ _PRODUCTS_PROMPT = """Combine all that you know about the company in Background 
 
 _PROFILES_PROMPT = """Create a list of personality types that shape how questions are phrased when paired with a persona. For example: aggressive, friendly, needs lots of detail, prefers basics only, highly knowledgeable, etc. Use your imagination."""
 
-_QUESTIONS_PROMPT = """For each agent there is, first randomly select an evaluation persona, then randomly select an 'initiating question dimension' and then randomly select a dimension value for the selected dimension, then randomly pick a personality profile. Combining the persona, the initiating question dimension and a dimension value, and the personality profile, generate an 'Initiating Question'. For each agent, generate 30 of such initiating questions. In essence, the idea is that you ask the question as if you are that persona, about the dimension and dimension value, in a manner and with wording based on the personality profile."""
+_QUESTIONS_PROMPT = """For the product or service context described below, repeatedly: randomly select an evaluation persona, then an initiating-question dimension and one of its values, then a personality profile. Combine them into one natural 'Initiating Question' — as if that persona is asking about that dimension value, phrased in the tone of the personality profile. Generate the requested number of distinct questions this way (vary combinations across questions)."""
 
 
 async def _call(prompt: str, max_tokens: int, temperature: float = 0.7) -> str:
@@ -172,7 +172,7 @@ Respond ONLY with a valid JSON array, no markdown, no explanation. Format:
 async def generate_initiating_questions(
     company_name: str,
     industry: str,
-    agent_name: str,
+    evaluation_subject: str,
     personas: list[str],
     dim_values: list[dict],
     profile_names: list[str],
@@ -181,7 +181,7 @@ async def generate_initiating_questions(
     prompt = f"""{_QUESTIONS_PROMPT}
 
 Company: {company_name or "Not specified"}, Industry: {industry or "Not specified"}
-Agent: {agent_name}
+Project / context: {evaluation_subject}
 
 IMPORTANT: You MUST select ONLY from the exact values provided below.
 

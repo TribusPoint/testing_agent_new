@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 class GeneratePersonasRequest(BaseModel):
@@ -15,5 +15,8 @@ class GenerateProfilesRequest(BaseModel):
 
 
 class GenerateQuestionsRequest(BaseModel):
-    agent_id: str
+    """Project-scoped generation; no connection/agent required."""
+
+    model_config = ConfigDict(extra="ignore")
+
     questions_per_agent: int = 30

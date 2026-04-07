@@ -148,7 +148,10 @@ class InitiatingQuestion(Base):
 
     id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
     project_id: Mapped[str] = mapped_column(UUID(as_uuid=False), ForeignKey("test_projects.id", ondelete="CASCADE"))
-    agent_id: Mapped[str] = mapped_column(UUID(as_uuid=False), ForeignKey("agents.id", ondelete="CASCADE"))
+    # Nullable: LLM-generated questions are project-scoped; runs attach an agent at execution time.
+    agent_id: Mapped[str | None] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("agents.id", ondelete="SET NULL"), nullable=True
+    )
     question: Mapped[str] = mapped_column(Text, nullable=False)
     expected_answer: Mapped[str | None] = mapped_column(Text, nullable=True)
     persona: Mapped[str | None] = mapped_column(Text, nullable=True)

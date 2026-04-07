@@ -237,10 +237,10 @@ export const generateProfiles = (projectId: string) =>
     method: "POST",
     body: "{}",
   });
-export const generateQuestions = (projectId: string, agentId: string, n = 30) =>
+export const generateQuestions = (projectId: string, n = 30) =>
   req<Question[]>(`/api/projects/${projectId}/generate/questions`, {
     method: "POST",
-    body: JSON.stringify({ agent_id: agentId, questions_per_agent: n }),
+    body: JSON.stringify({ questions_per_agent: n }),
   });
 
 // Fetch context data
@@ -474,7 +474,7 @@ export interface PersonalityProfile {
 export interface Question {
   id: string;
   project_id: string;
-  agent_id: string;
+  agent_id: string | null;
   question: string;
   expected_answer: string | null;
   persona: string | null;

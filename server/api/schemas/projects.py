@@ -105,7 +105,7 @@ class PersonalityProfileResponse(BaseModel):
 class InitiatingQuestionResponse(BaseModel):
     id: str
     project_id: str
-    agent_id: str
+    agent_id: str | None
     question: str
     expected_answer: str | None
     persona: str | None
