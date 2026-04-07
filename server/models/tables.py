@@ -71,6 +71,9 @@ class TestProject(Base):
     company_websites: Mapped[str | None] = mapped_column(Text, nullable=True)
     industry: Mapped[str | None] = mapped_column(Text, nullable=True)
     competitors: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # LLM-derived website analysis (see site_analysis_service)
+    site_analysis: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    site_analyzed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
@@ -90,8 +93,12 @@ class Persona(Base):
     project_id: Mapped[str] = mapped_column(UUID(as_uuid=False), ForeignKey("test_projects.id", ondelete="CASCADE"))
     agent_id: Mapped[str | None] = mapped_column(UUID(as_uuid=False), ForeignKey("agents.id", ondelete="SET NULL"), nullable=True)
     name: Mapped[str] = mapped_column(Text, nullable=False)
+    # Short "who they are" line (UI: Persona)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     tag: Mapped[str | None] = mapped_column(Text, nullable=True)
+    goal: Mapped[str | None] = mapped_column(Text, nullable=True)
+    personality: Mapped[str | None] = mapped_column(Text, nullable=True)
+    knowledge_level: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class Product(Base):

@@ -3,6 +3,7 @@ from pydantic import BaseModel
 
 class GeneratePersonasRequest(BaseModel):
     agent_id: str
+    count: int = 4
 
 
 class GenerateDimensionsRequest(BaseModel):

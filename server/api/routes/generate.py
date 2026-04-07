@@ -43,6 +43,7 @@ async def gen_personas(
         agent_name=agent.name,
         topics=agent.topics or [],
         actions=agent.actions or [],
+        count=body.count,
     )
 
     saved = []
@@ -51,7 +52,10 @@ async def gen_personas(
             project_id=project_id,
             agent_id=body.agent_id,
             name=p["name"],
-            description=p.get("description"),
+            description=p.get("persona") or p.get("description"),
+            goal=p.get("goal"),
+            personality=p.get("personality"),
+            knowledge_level=p.get("knowledge_level"),
             tag=p.get("tag"),
         )
         db.add(obj)

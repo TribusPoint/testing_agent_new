@@ -6,8 +6,14 @@ from models.database import get_db
 from models.tables import SalesforceConnection, Agent
 from api.schemas.agents import AgentResponse, AgentCreate, AgentUpdate, ChatRequest, ChatResponse, EndSessionRequest
 from api.services.salesforce import (
-    get_token, fetch_agents, fetch_agent_metadata,
-    create_session, send_message, end_session, SalesforceError,
+    get_token,
+    fetch_agents,
+    fetch_agent_metadata,
+    create_session,
+    send_message,
+    end_session,
+    SalesforceError,
+    normalize_salesforce_domain,
 )
 from api.services.http_service import send_http_message, HttpServiceError
 from api.services.browser_service import send_browser_message_once, BrowserServiceError
@@ -25,12 +31,20 @@ async def describe_sobject(connection_id: str, sobject_name: str, db: AsyncSessi
     import httpx
     errors = []
     try:
+        sf_host = normalize_salesforce_domain(conn.domain)
+        if not sf_host:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Salesforce domain is missing or invalid. Enter your org hostname only "
+                    "(e.g. mycompany.my.salesforce.com), without https://."
+                ),
+            )
         token = await get_token(conn.domain, conn.consumer_key, conn.consumer_secret)
         headers = {"Authorization": f"Bearer {token}"}
-        domain = conn.domain
         for v in ["v62.0", "v61.0", "v60.0"]:
             for api_type in ["tooling", "data"]:
-                base = f"https://{domain}/services/data/{v}"
+                base = f"https://{sf_host}/services/data/{v}"
                 url = (
                     f"{base}/tooling/sobjects/{sobject_name}/describe"
                     if api_type == "tooling"
@@ -77,12 +91,22 @@ async def discover_endpoints(connection_id: str, db: AsyncSession = Depends(get_
     if not conn:
         raise HTTPException(status_code=404, detail="Connection not found")
 
+    sf_host = normalize_salesforce_domain(conn.domain)
+    if not sf_host:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Salesforce domain is missing or invalid. Enter your org hostname only "
+                "(e.g. mycompany.my.salesforce.com), without https://."
+            ),
+        )
+
     try:
         token = await get_token(conn.domain, conn.consumer_key, conn.consumer_secret)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Auth failed: {e}")
 
-    domain = conn.domain
+    domain = sf_host
     headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
     results = []
 
@@ -171,18 +195,27 @@ async def run_soql(connection_id: str, body: dict, db: AsyncSession = Depends(ge
     def _clean(text: str) -> str:
         return re.sub(r"<[^>]+>", "", text).strip()[:400]
 
+    sf_host = normalize_salesforce_domain(conn.domain)
+    if not sf_host:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Salesforce domain is missing or invalid. Enter your org hostname only "
+                "(e.g. mycompany.my.salesforce.com), without https://."
+            ),
+        )
+
     try:
         token = await get_token(conn.domain, conn.consumer_key, conn.consumer_secret)
         headers = {"Authorization": f"Bearer {token}"}
-        domain = conn.domain
         # Try Tooling API first, then regular REST
         for url in [
-            f"https://{domain}/services/data/v62.0/tooling/query",
-            f"https://{domain}/services/data/v61.0/tooling/query",
-            f"https://{domain}/services/data/v60.0/tooling/query",
-            f"https://{domain}/services/data/v62.0/query",
-            f"https://{domain}/services/data/v61.0/query",
-            f"https://{domain}/services/data/v60.0/query",
+            f"https://{sf_host}/services/data/v62.0/tooling/query",
+            f"https://{sf_host}/services/data/v61.0/tooling/query",
+            f"https://{sf_host}/services/data/v60.0/tooling/query",
+            f"https://{sf_host}/services/data/v62.0/query",
+            f"https://{sf_host}/services/data/v61.0/query",
+            f"https://{sf_host}/services/data/v60.0/query",
         ]:
             try:
                 async with httpx.AsyncClient(timeout=20) as client:
@@ -477,13 +510,29 @@ async def discover_runtime_ids(connection_id: str, db: AsyncSession = Depends(ge
     import httpx
     import re
 
+    sf_host = normalize_salesforce_domain(conn.domain)
+    if not sf_host:
+        return {
+            "agents": [],
+            "errors": [
+                "Salesforce domain is missing or invalid. Use your org hostname only "
+                "(e.g. mycompany.my.salesforce.com), without https://."
+            ],
+            "instructions": (
+                "To find your agent ID manually: "
+                "Salesforce Setup → search 'Agents' in Quick Find → "
+                "click your agent → copy the 18-character ID from the URL "
+                "(e.g. 0HoXXXXXXXXXXXXXXX) or the record detail page."
+            ),
+        }
+
     try:
         token = await get_token(conn.domain, conn.consumer_key, conn.consumer_secret)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Auth failed: {e}")
 
     headers = {"Authorization": f"Bearer {token}"}
-    domain = conn.domain
+    domain = sf_host
     results: list[dict] = []
     errors: list[str] = []
 

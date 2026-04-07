@@ -64,7 +64,16 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
   }
   if (!res.ok) {
     const body = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(body.detail ?? "Request failed");
+    const d = (body as { detail?: unknown }).detail;
+    const msg =
+      typeof d === "string"
+        ? d
+        : Array.isArray(d)
+          ? d
+              .map((x) => (typeof x === "object" && x !== null && "msg" in x ? String((x as { msg: string }).msg) : JSON.stringify(x)))
+              .join("; ")
+          : "Request failed";
+    throw new Error(msg || "Request failed");
   }
   return res.json() as T;
 }
@@ -198,6 +207,7 @@ export const endSession = (agentId: string, sessionId: string) =>
 
 // Projects
 export const listProjects = () => req<Project[]>("/api/projects");
+export const getProject = (id: string) => req<Project>(`/api/projects/${id}`);
 export const createProject = (b: ProjectCreate) =>
   req<Project>("/api/projects", { method: "POST", body: JSON.stringify(b) });
 export const updateProject = (
@@ -205,12 +215,17 @@ export const updateProject = (
   body: { name?: string; description?: string; company_name?: string; industry?: string; competitors?: string; company_websites?: string }
 ) => req<Project>(`/api/projects/${id}`, { method: "PUT", body: JSON.stringify(body) });
 export const deleteProject = (id: string) => del(`/api/projects/${id}`);
+export const analyzeProjectSite = (projectId: string, body: { url?: string | null } = {}) =>
+  req<Project>(`/api/projects/${projectId}/analyze-site`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
 
 // Generate
-export const generatePersonas = (projectId: string, agentId: string) =>
+export const generatePersonas = (projectId: string, agentId: string, count = 4) =>
   req<Persona[]>(`/api/projects/${projectId}/generate/personas`, {
     method: "POST",
-    body: JSON.stringify({ agent_id: agentId }),
+    body: JSON.stringify({ agent_id: agentId, count }),
   });
 export const generateDimensions = (projectId: string) =>
   req<Dimension[]>(`/api/projects/${projectId}/generate/dimensions`, {
@@ -231,6 +246,42 @@ export const generateQuestions = (projectId: string, agentId: string, n = 30) =>
 // Fetch context data
 export const listPersonas = (projectId: string) =>
   req<Persona[]>(`/api/projects/${projectId}/personas`);
+export const createPersona = (
+  projectId: string,
+  body: {
+    name: string;
+    description?: string | null;
+    goal?: string | null;
+    personality?: string | null;
+    knowledge_level?: string | null;
+    tag?: string | null;
+    agent_id?: string | null;
+  }
+) =>
+  req<Persona>(`/api/projects/${projectId}/personas`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+export const updatePersona = (
+  projectId: string,
+  personaId: string,
+  body: {
+    name?: string;
+    description?: string | null;
+    goal?: string | null;
+    personality?: string | null;
+    knowledge_level?: string | null;
+    tag?: string | null;
+  }
+) =>
+  req<Persona>(`/api/projects/${projectId}/personas/${personaId}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+export const deleteAllPersonas = (projectId: string) =>
+  del(`/api/projects/${projectId}/personas`);
+export const deletePersona = (projectId: string, personaId: string) =>
+  del(`/api/projects/${projectId}/personas/${personaId}`);
 export const listDimensions = (projectId: string) =>
   req<Dimension[]>(`/api/projects/${projectId}/dimensions`);
 export const listProfiles = (projectId: string) =>
@@ -350,6 +401,26 @@ export interface Agent {
   created_at: string;
   updated_at: string;
 }
+export interface SiteAnalysisSubtitleTag {
+  label: string;
+  tone: string;
+}
+
+export interface SiteAnalysisTagged {
+  text: string;
+  tone: string;
+  key: string;
+}
+
+export interface SiteAnalysis {
+  overview_description: string;
+  subtitle_tags: SiteAnalysisSubtitleTag[];
+  audience_segments: SiteAnalysisTagged[];
+  services: SiteAnalysisTagged[];
+  keywords: string[];
+  user_needs: string[];
+}
+
 export interface Project {
   id: string;
   name: string;
@@ -358,6 +429,8 @@ export interface Project {
   company_websites: string | null;
   industry: string | null;
   competitors: string | null;
+  site_analysis?: SiteAnalysis | null;
+  site_analyzed_at?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -376,6 +449,9 @@ export interface Persona {
   name: string;
   description: string | null;
   tag: string | null;
+  goal?: string | null;
+  personality?: string | null;
+  knowledge_level?: string | null;
 }
 export interface DimensionValue {
   id: string;

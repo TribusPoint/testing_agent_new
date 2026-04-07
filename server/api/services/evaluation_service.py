@@ -6,7 +6,7 @@ _JUDGE_PROMPT = """You are a QA evaluator assessing the quality of an AI agent's
 You will receive:
 - The original test question (what the user wanted to know)
 - Optionally, an expected answer (ground truth) to compare against
-- The full conversation between tester and agent
+- The full conversation between the persona (user) and the agent
 
 Your job: score the agent's overall performance on a scale of 0 to 100 and explain your reasoning in ONE concise sentence.
 

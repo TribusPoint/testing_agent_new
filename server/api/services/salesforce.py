@@ -6,6 +6,28 @@ from config import settings
 
 T = TypeVar("T")
 
+
+def normalize_salesforce_domain(domain: str | None) -> str:
+    """
+    Return hostname only for API calls (e.g. myorg.my.salesforce.com).
+    Accepts bare host or full URL; strips scheme, path, query, and fragments.
+    """
+    if domain is None:
+        return ""
+    d = str(domain).strip()
+    if not d:
+        return ""
+    low = d.lower()
+    if low.startswith("https://"):
+        d = d[8:]
+    elif low.startswith("http://"):
+        d = d[7:]
+    # host[:port] only — drop path/query
+    d = d.split("/")[0].split("?")[0].split("#")[0].strip()
+    if "@" in d:
+        d = d.rsplit("@", 1)[-1].strip()
+    return d.rstrip(".").strip()
+
 # The Salesforce global API base — same as the POC's API_BASE_URL.
 # Agent sessions are managed here, NOT at the org domain.
 SF_API_BASE = "https://api.salesforce.com"
@@ -30,7 +52,13 @@ async def with_retry(fn: Callable[[], Awaitable[T]]) -> T:
 
 async def get_token(domain: str, consumer_key: str, consumer_secret: str) -> str:
     """Authenticate via OAuth 2.0 client credentials flow."""
-    url = f"https://{domain}/services/oauth2/token"
+    host = normalize_salesforce_domain(domain)
+    if not host:
+        raise SalesforceError(
+            "Salesforce domain is missing or invalid. Use your org hostname only "
+            "(e.g. mycompany.my.salesforce.com), not a full URL with https:// or a path."
+        )
+    url = f"https://{host}/services/oauth2/token"
     async with httpx.AsyncClient() as client:
         resp = await client.post(url, data={
             "grant_type": "client_credentials",
@@ -48,11 +76,14 @@ async def fetch_agents(domain: str, token: str) -> list[dict]:
     Uses BotDefinition with the `Type` field (v63.0), falling back to
     GenAiPlanner and BotVersion strategies.
     """
+    host = normalize_salesforce_domain(domain)
+    if not host:
+        return []
     headers = {"Authorization": f"Bearer {token}"}
 
     for version in ["v63.0", "v62.0", "v61.0", "v60.0"]:
-        tooling_url = f"https://{domain}/services/data/{version}/tooling/query"
-        rest_url = f"https://{domain}/services/data/{version}/query"
+        tooling_url = f"https://{host}/services/data/{version}/tooling/query"
+        rest_url = f"https://{host}/services/data/{version}/query"
 
         # Strategy 1: BotDefinition with Type field (v63.0 exposes it)
         try:
@@ -93,9 +124,9 @@ async def fetch_agents(domain: str, token: str) -> list[dict]:
         for base in ["tooling", "rest"]:
             try:
                 url = (
-                    f"https://{domain}/services/data/{version}/tooling/query"
+                    f"https://{host}/services/data/{version}/tooling/query"
                     if base == "tooling"
-                    else f"https://{domain}/services/data/{version}/query"
+                    else f"https://{host}/services/data/{version}/query"
                 )
                 async with httpx.AsyncClient() as client:
                     resp = await client.get(
@@ -117,6 +148,9 @@ async def fetch_agents(domain: str, token: str) -> list[dict]:
 
 async def fetch_agent_metadata(domain: str, token: str, bot_id: str) -> dict:
     """Fetch topics and actions for a specific agent."""
+    host = normalize_salesforce_domain(domain)
+    if not host:
+        return {"planner_id": None, "planner_name": None, "topics": [], "actions": []}
     headers = {"Authorization": f"Bearer {token}"}
     topics: list = []
     actions: list = []
@@ -125,7 +159,7 @@ async def fetch_agent_metadata(domain: str, token: str, bot_id: str) -> dict:
 
     try:
         async with httpx.AsyncClient() as client:
-            tooling = f"https://{domain}/services/data/v63.0/tooling/query"
+            tooling = f"https://{host}/services/data/v63.0/tooling/query"
 
             p_resp = await client.get(
                 tooling,
@@ -235,7 +269,13 @@ async def create_session(
             "bypassUser": True,
         }
 
-    org_endpoint = f"https://{domain}"
+    host = normalize_salesforce_domain(domain)
+    if not host:
+        raise SalesforceError(
+            "Salesforce domain is missing or invalid. Use your org hostname only "
+            "(e.g. mycompany.my.salesforce.com)."
+        )
+    org_endpoint = f"https://{host}"
 
     if runtime_url:
         session_url = (

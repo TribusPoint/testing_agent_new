@@ -1,6 +1,8 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from datetime import datetime
 from typing import Literal
+
+from api.services.salesforce import normalize_salesforce_domain
 
 
 # ── Salesforce ────────────────────────────────────────────────────────────────
@@ -46,6 +48,13 @@ class ConnectionCreate(BaseModel):
     # HTTP config (optional for Salesforce)
     config: dict | None = None
 
+    @field_validator("domain", mode="before")
+    @classmethod
+    def _normalize_domain_create(cls, v: object) -> object:
+        if not isinstance(v, str) or not v.strip():
+            return v
+        return normalize_salesforce_domain(v)
+
 
 class ConnectionUpdate(BaseModel):
     name: str | None = None
@@ -56,6 +65,13 @@ class ConnectionUpdate(BaseModel):
     default_agent_id: str | None = None
     # HTTP
     config: dict | None = None
+
+    @field_validator("domain", mode="before")
+    @classmethod
+    def _normalize_domain_update(cls, v: object) -> object:
+        if v is None or not isinstance(v, str) or not v.strip():
+            return v
+        return normalize_salesforce_domain(v)
 
 
 class ConnectionResponse(BaseModel):

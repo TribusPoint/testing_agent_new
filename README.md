@@ -87,7 +87,7 @@ testing_agent/
 | `products` | Products/services associated with a project |
 | `dimensions` | Question categories (e.g. "Refund Policy", "Pricing") |
 | `dimension_values` | Values within a dimension |
-| `personality_profiles` | Tester personality types (e.g. aggressive, friendly, confused) |
+| `personality_profiles` | Personality types that shape how questions are phrased (e.g. aggressive, friendly, confused) |
 | `initiating_questions` | Generated test questions (persona + dimension + personality combo) |
 | `test_runs` | A test execution — links project, agent, status, progress |
 | `test_run_results` | Per-question result — question, response, follow-ups, latency, pass/fail |
