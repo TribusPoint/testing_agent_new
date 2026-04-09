@@ -51,6 +51,11 @@ function ProjectDetailView({ projectId }: { projectId: string }) {
   const [savingExpected, setSavingExpected] = useState(false);
   const expectedRef = useRef<HTMLTextAreaElement>(null);
 
+  const [selectedQIds, setSelectedQIds] = useState<Set<string>>(new Set());
+  const [showPromote, setShowPromote] = useState(false);
+  const [promoteForm, setPromoteForm] = useState({ domain: "general", category: "uncategorized", tags: "" });
+  const [promoting, setPromoting] = useState(false);
+
   useEffect(() => {
     let cancelled = false;
     setProjectLoading(true);
@@ -165,6 +170,43 @@ function ProjectDetailView({ projectId }: { projectId: string }) {
       setEditingExpected(null);
     } catch {}
     finally { setSavingExpected(false); }
+  }
+
+  function toggleQSelection(id: string) {
+    setSelectedQIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleAllQuestions() {
+    if (selectedQIds.size === questions.length) {
+      setSelectedQIds(new Set());
+    } else {
+      setSelectedQIds(new Set(questions.map((q) => q.id)));
+    }
+  }
+
+  async function handlePromote() {
+    if (selectedQIds.size === 0) return;
+    setPromoting(true);
+    try {
+      await api.promoteToRepo({
+        question_ids: Array.from(selectedQIds),
+        domain: promoteForm.domain.trim() || "general",
+        category: promoteForm.category.trim() || "uncategorized",
+        tags: promoteForm.tags ? promoteForm.tags.split(",").map((t) => t.trim()).filter(Boolean) : [],
+      });
+      setSelectedQIds(new Set());
+      setShowPromote(false);
+      alert(`${selectedQIds.size} question(s) saved to repository.`);
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Failed to promote");
+    } finally {
+      setPromoting(false);
+    }
   }
 
   async function loadContextData(pid: string) {
@@ -765,17 +807,77 @@ function ProjectDetailView({ projectId }: { projectId: string }) {
                     <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-3">
                       Questions use your project&apos;s <strong>personas</strong>, <strong>dimensions</strong>, and <strong>profiles</strong> only. Connection and agent are chosen on the <strong>Runs</strong> page when you execute a test.
                     </p>
-                    <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
                       <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Questions</h3>
-                      <button
-                        type="button"
-                        onClick={() => generate("questions")}
-                        disabled={genLoading !== null}
-                        className="text-xs px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
-                      >
-                        {genLoading === "questions" ? "Generating..." : "Generate Questions"}
-                      </button>
+                      <div className="flex items-center gap-2">
+                        {questions.length > 0 && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={toggleAllQuestions}
+                              className="text-xs px-2 py-1 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-800"
+                            >
+                              {selectedQIds.size === questions.length ? "Deselect All" : "Select All"}
+                            </button>
+                            {selectedQIds.size > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => setShowPromote(true)}
+                                className="text-xs px-3 py-1.5 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700"
+                              >
+                                Save to Repo ({selectedQIds.size})
+                              </button>
+                            )}
+                          </>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => generate("questions")}
+                          disabled={genLoading !== null}
+                          className="text-xs px-3 py-1.5 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50"
+                        >
+                          {genLoading === "questions" ? "Generating..." : "Generate Questions"}
+                        </button>
+                      </div>
                     </div>
+
+                    {/* Promote modal */}
+                    {showPromote && selectedQIds.size > 0 && (
+                      <div className="mb-4 p-3 rounded-lg border border-emerald-200 dark:border-emerald-900 bg-emerald-50/50 dark:bg-emerald-950/20">
+                        <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300 mb-2">
+                          Save {selectedQIds.size} question{selectedQIds.size !== 1 ? "s" : ""} to the global repository
+                        </p>
+                        <div className="grid grid-cols-3 gap-2 mb-2">
+                          <input
+                            placeholder="Domain (e.g. banking)"
+                            value={promoteForm.domain}
+                            onChange={(e) => setPromoteForm((f) => ({ ...f, domain: e.target.value }))}
+                            className={INPUT_CLS}
+                          />
+                          <input
+                            placeholder="Category (e.g. FAQ)"
+                            value={promoteForm.category}
+                            onChange={(e) => setPromoteForm((f) => ({ ...f, category: e.target.value }))}
+                            className={INPUT_CLS}
+                          />
+                          <input
+                            placeholder="Tags (comma separated)"
+                            value={promoteForm.tags}
+                            onChange={(e) => setPromoteForm((f) => ({ ...f, tags: e.target.value }))}
+                            className={INPUT_CLS}
+                          />
+                        </div>
+                        <div className="flex gap-2">
+                          <button type="button" onClick={handlePromote} disabled={promoting} className="text-xs bg-emerald-600 text-white px-4 py-1.5 rounded-lg hover:bg-emerald-700 disabled:opacity-50">
+                            {promoting ? "Saving..." : "Save to Repository"}
+                          </button>
+                          <button type="button" onClick={() => setShowPromote(false)} className="text-xs text-gray-500 px-3 py-1.5 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800">
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
                     {questions.length === 0 ? (
                       <p className="text-xs text-gray-400">
                         No questions yet. Add personas, dimensions, and profiles, then click <strong>Generate Questions</strong>.
@@ -784,49 +886,60 @@ function ProjectDetailView({ projectId }: { projectId: string }) {
                       <div className="flex flex-col gap-2">
                         {questions.map((q) => {
                           const isEditing = editingExpected === q.id;
+                          const isSelected = selectedQIds.has(q.id);
                           return (
-                            <div key={q.id} className="border border-gray-200 dark:border-gray-700 rounded-lg p-3">
-                              <p className="text-sm text-gray-900 dark:text-white">{q.question}</p>
-                              <div className="flex flex-wrap gap-2 mt-2">
-                                {q.persona && <span className="text-xs text-blue-600 dark:text-blue-400">@{q.persona}</span>}
-                                {q.dimension_value && <span className="text-xs text-gray-400">{q.dimension} / {q.dimension_value}</span>}
-                                {q.personality_profile && <span className="text-xs text-purple-600 dark:text-purple-400">{q.personality_profile}</span>}
-                              </div>
-                              <div className="mt-2 pt-2 border-t border-gray-100 dark:border-gray-800">
-                                {isEditing ? (
-                                  <div className="flex flex-col gap-1.5">
-                                    <textarea
-                                      ref={expectedRef}
-                                      rows={3}
-                                      className="w-full text-xs px-2 py-1.5 border border-indigo-400 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-none"
-                                      placeholder="Enter expected answer..."
-                                      value={expectedDraft}
-                                      onChange={(e) => setExpectedDraft(e.target.value)}
-                                    />
-                                    <div className="flex gap-2">
-                                      <button type="button" onClick={() => saveExpectedAnswer(q)} disabled={savingExpected} className="text-xs bg-indigo-600 text-white px-3 py-1 rounded hover:bg-indigo-700 disabled:opacity-50">
-                                        {savingExpected ? "Saving..." : "Save"}
-                                      </button>
-                                      <button type="button" onClick={() => setEditingExpected(null)} className="text-xs text-gray-500 px-3 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800">
-                                        Cancel
-                                      </button>
-                                    </div>
+                            <div key={q.id} className={`border rounded-lg p-3 ${isSelected ? "border-emerald-300 dark:border-emerald-700 bg-emerald-50/30 dark:bg-emerald-950/10" : "border-gray-200 dark:border-gray-700"}`}>
+                              <div className="flex items-start gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => toggleQSelection(q.id)}
+                                  className="mt-1 shrink-0 accent-emerald-600"
+                                />
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm text-gray-900 dark:text-white">{q.question}</p>
+                                  <div className="flex flex-wrap gap-2 mt-2">
+                                    {q.persona && <span className="text-xs text-blue-600 dark:text-blue-400">@{q.persona}</span>}
+                                    {q.dimension_value && <span className="text-xs text-gray-400">{q.dimension} / {q.dimension_value}</span>}
+                                    {q.personality_profile && <span className="text-xs text-purple-600 dark:text-purple-400">{q.personality_profile}</span>}
                                   </div>
-                                ) : q.expected_answer ? (
-                                  <div className="flex items-start justify-between gap-2">
-                                    <div>
-                                      <p className="text-xs text-gray-400 mb-0.5">Expected answer</p>
-                                      <p className="text-xs text-gray-700 dark:text-gray-300 leading-relaxed">{q.expected_answer}</p>
-                                    </div>
-                                    <button type="button" onClick={() => { setEditingExpected(q.id); setExpectedDraft(q.expected_answer ?? ""); }} className="text-xs text-indigo-600 dark:text-indigo-400 shrink-0 hover:underline">
-                                      Edit
-                                    </button>
+                                  <div className="mt-2 pt-2 border-t border-gray-100 dark:border-gray-800">
+                                    {isEditing ? (
+                                      <div className="flex flex-col gap-1.5">
+                                        <textarea
+                                          ref={expectedRef}
+                                          rows={3}
+                                          className="w-full text-xs px-2 py-1.5 border border-indigo-400 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 resize-none"
+                                          placeholder="Enter expected answer..."
+                                          value={expectedDraft}
+                                          onChange={(e) => setExpectedDraft(e.target.value)}
+                                        />
+                                        <div className="flex gap-2">
+                                          <button type="button" onClick={() => saveExpectedAnswer(q)} disabled={savingExpected} className="text-xs bg-indigo-600 text-white px-3 py-1 rounded hover:bg-indigo-700 disabled:opacity-50">
+                                            {savingExpected ? "Saving..." : "Save"}
+                                          </button>
+                                          <button type="button" onClick={() => setEditingExpected(null)} className="text-xs text-gray-500 px-3 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800">
+                                            Cancel
+                                          </button>
+                                        </div>
+                                      </div>
+                                    ) : q.expected_answer ? (
+                                      <div className="flex items-start justify-between gap-2">
+                                        <div>
+                                          <p className="text-xs text-gray-400 mb-0.5">Expected answer</p>
+                                          <p className="text-xs text-gray-700 dark:text-gray-300 leading-relaxed">{q.expected_answer}</p>
+                                        </div>
+                                        <button type="button" onClick={() => { setEditingExpected(q.id); setExpectedDraft(q.expected_answer ?? ""); }} className="text-xs text-indigo-600 dark:text-indigo-400 shrink-0 hover:underline">
+                                          Edit
+                                        </button>
+                                      </div>
+                                    ) : (
+                                      <button type="button" onClick={() => { setEditingExpected(q.id); setExpectedDraft(""); }} className="text-xs text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400">
+                                        + Add expected answer
+                                      </button>
+                                    )}
                                   </div>
-                                ) : (
-                                  <button type="button" onClick={() => { setEditingExpected(q.id); setExpectedDraft(""); }} className="text-xs text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400">
-                                    + Add expected answer
-                                  </button>
-                                )}
+                                </div>
                               </div>
                             </div>
                           );

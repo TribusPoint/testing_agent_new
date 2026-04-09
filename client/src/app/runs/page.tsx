@@ -75,6 +75,16 @@ export default function RunsPage() {
   const [cancellingRun, setCancellingRun] = useState<string | null>(null);
   const [exportingRun, setExportingRun] = useState(false);
 
+  // Repo question picker state
+  const [showRepoPicker, setShowRepoPicker] = useState(false);
+  const [repoQuestions, setRepoQuestions] = useState<api.RepoQuestion[]>([]);
+  const [repoDomains, setRepoDomains] = useState<api.DomainCategoryInfo[]>([]);
+  const [repoFilterDomain, setRepoFilterDomain] = useState("");
+  const [repoFilterCategory, setRepoFilterCategory] = useState("");
+  const [repoSearch, setRepoSearch] = useState("");
+  const [selectedRepoQIds, setSelectedRepoQIds] = useState<Set<string>>(new Set());
+  const [loadingRepo, setLoadingRepo] = useState(false);
+
   // Annotation state
   const [annotating, setAnnotating] = useState<string | null>(null);
   const [annotationDraft, setAnnotationDraft] = useState<{ human_score: string; human_notes: string }>({ human_score: "", human_notes: "" });
@@ -174,6 +184,33 @@ export default function RunsPage() {
     } finally { setCancellingRun(null); }
   }
 
+  async function loadRepoQuestions() {
+    setLoadingRepo(true);
+    try {
+      const [qs, doms] = await Promise.allSettled([
+        api.listRepoQuestions({
+          domain: repoFilterDomain || undefined,
+          category: repoFilterCategory || undefined,
+          search: repoSearch || undefined,
+        }),
+        api.listRepoDomains(),
+      ]);
+      if (qs.status === "fulfilled") setRepoQuestions(qs.value);
+      if (doms.status === "fulfilled") setRepoDomains(doms.value);
+    } finally {
+      setLoadingRepo(false);
+    }
+  }
+
+  function toggleRepoQ(id: string) {
+    setSelectedRepoQIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
   async function handleCreateRun(): Promise<boolean> {
     if (!connId || !runProjectId || !runAgentId) {
       alert("Select a connection, agent, and project (open Start run to pick the project).");
@@ -181,8 +218,13 @@ export default function RunsPage() {
     }
     setCreating(true);
     try {
-      const run = await api.createRun({ project_id: runProjectId, agent_id: runAgentId });
+      const run = await api.createRun({
+        project_id: runProjectId,
+        agent_id: runAgentId,
+        repo_question_ids: selectedRepoQIds.size > 0 ? Array.from(selectedRepoQIds) : undefined,
+      });
       setRuns((prev) => [run, ...prev]);
+      setSelectedRepoQIds(new Set());
       await selectRun(run);
       return true;
     } catch (e: unknown) {
@@ -494,6 +536,13 @@ export default function RunsPage() {
             </div>
             <button
               type="button"
+              onClick={() => { setShowRepoPicker((v) => !v); if (!showRepoPicker) loadRepoQuestions(); }}
+              className="text-xs px-3 py-2 border border-emerald-300 dark:border-emerald-700 text-emerald-700 dark:text-emerald-300 rounded-lg hover:bg-emerald-50 dark:hover:bg-emerald-950/30 font-medium shrink-0"
+            >
+              + From Repo {selectedRepoQIds.size > 0 ? `(${selectedRepoQIds.size})` : ""}
+            </button>
+            <button
+              type="button"
               onClick={async () => {
                 const ok = await handleCreateRun();
                 if (ok) setShowStartRun(false);
@@ -501,9 +550,83 @@ export default function RunsPage() {
               disabled={creating || !runProjectId || !runAgentId || !connId}
               className="text-xs bg-indigo-600 text-white px-4 py-2 rounded-lg hover:bg-indigo-700 disabled:opacity-50 font-medium shrink-0"
             >
-              {creating ? "Starting..." : "Start Run"}
+              {creating ? "Starting..." : `Start Run${selectedRepoQIds.size > 0 ? ` (+${selectedRepoQIds.size} repo)` : ""}`}
             </button>
           </div>
+
+          {/* Repo question picker */}
+          {showRepoPicker && (
+            <div className="mt-3 p-3 border border-emerald-200 dark:border-emerald-900 rounded-lg bg-emerald-50/30 dark:bg-emerald-950/10">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+                  Select questions from the repository
+                </p>
+                <button type="button" onClick={() => setShowRepoPicker(false)} className="text-xs text-gray-500 hover:text-gray-800 dark:hover:text-gray-300">
+                  Close
+                </button>
+              </div>
+              <div className="flex flex-wrap gap-2 mb-2">
+                <select
+                  value={repoFilterDomain}
+                  onChange={(e) => { setRepoFilterDomain(e.target.value); setRepoFilterCategory(""); }}
+                  className={SELECT_CLS}
+                >
+                  <option value="">All domains</option>
+                  {repoDomains.map((d) => (
+                    <option key={d.domain} value={d.domain}>{d.domain} ({d.count})</option>
+                  ))}
+                </select>
+                <select
+                  value={repoFilterCategory}
+                  onChange={(e) => setRepoFilterCategory(e.target.value)}
+                  disabled={!repoFilterDomain}
+                  className={`${SELECT_CLS} disabled:opacity-50`}
+                >
+                  <option value="">All categories</option>
+                  {(repoDomains.find((d) => d.domain === repoFilterDomain)?.categories ?? []).map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </select>
+                <input
+                  type="text"
+                  placeholder="Search..."
+                  value={repoSearch}
+                  onChange={(e) => setRepoSearch(e.target.value)}
+                  className="text-xs px-2 py-1.5 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-indigo-500 flex-1 min-w-[8rem]"
+                />
+                <button type="button" onClick={loadRepoQuestions} disabled={loadingRepo} className="text-xs px-2 py-1.5 bg-gray-200 dark:bg-gray-700 rounded hover:bg-gray-300 dark:hover:bg-gray-600 disabled:opacity-50">
+                  {loadingRepo ? "..." : "Filter"}
+                </button>
+              </div>
+              <div className="max-h-48 overflow-y-auto flex flex-col gap-1">
+                {repoQuestions.length === 0 && !loadingRepo && (
+                  <p className="text-xs text-gray-400 py-3 text-center">No repo questions found.</p>
+                )}
+                {repoQuestions.map((rq) => (
+                  <label key={rq.id} className={`flex items-start gap-2 px-2 py-1.5 rounded cursor-pointer hover:bg-emerald-100/50 dark:hover:bg-emerald-950/30 ${selectedRepoQIds.has(rq.id) ? "bg-emerald-100/60 dark:bg-emerald-950/20" : ""}`}>
+                    <input
+                      type="checkbox"
+                      checked={selectedRepoQIds.has(rq.id)}
+                      onChange={() => toggleRepoQ(rq.id)}
+                      className="mt-0.5 accent-emerald-600 shrink-0"
+                    />
+                    <div className="min-w-0">
+                      <p className="text-xs text-gray-900 dark:text-white">{rq.question}</p>
+                      <div className="flex gap-1 mt-0.5">
+                        <span className="text-[9px] px-1 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">{rq.domain}</span>
+                        <span className="text-[9px] px-1 rounded bg-gray-100 dark:bg-gray-800 text-gray-500">{rq.category}</span>
+                      </div>
+                    </div>
+                  </label>
+                ))}
+              </div>
+              {selectedRepoQIds.size > 0 && (
+                <p className="text-xs text-emerald-600 dark:text-emerald-400 mt-2 font-medium">
+                  {selectedRepoQIds.size} repo question{selectedRepoQIds.size !== 1 ? "s" : ""} selected — they will be added to the run alongside project questions.
+                </p>
+              )}
+            </div>
+          )}
         </div>
       )}
 

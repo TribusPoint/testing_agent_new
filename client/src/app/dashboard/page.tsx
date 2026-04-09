@@ -95,14 +95,19 @@ export default function DashboardPage() {
 
   useEffect(() => {
     if (!selectedAgent) return;
-    setLoadingTrend(true);
-    setTrend(null);
-    setTrendError(null);
-    api
-      .getAgentTrend(selectedAgent, 20)
-      .then(setTrend)
-      .catch(() => setTrendError("Failed to load trend data"))
-      .finally(() => setLoadingTrend(false));
+    let cancelled = false;
+    (async () => {
+      setLoadingTrend(true);
+      try {
+        const data = await api.getAgentTrend(selectedAgent, 20);
+        if (!cancelled) { setTrend(data); setTrendError(null); }
+      } catch {
+        if (!cancelled) { setTrend(null); setTrendError("Failed to load trend data"); }
+      } finally {
+        if (!cancelled) setLoadingTrend(false);
+      }
+    })();
+    return () => { cancelled = true; };
   }, [selectedAgent]);
 
   return (

@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Script from "next/script";
-import SidebarNav from "@/components/sidebar-nav";
-import { COLOR_MODE_STORAGE_KEY, ThemeProvider } from "@/components/theme-provider";
+import { COLOR_MODE_STORAGE_KEY } from "@/components/theme-provider";
+import { ThemeProvider } from "@/components/theme-provider";
+import { AuthProvider } from "@/components/auth-provider";
+import AppShell from "@/components/app-shell";
 import "./globals.css";
 
 /** Must stay in sync with `applyColorModeToDocument` / `resolveColorMode` in theme-provider.tsx */
@@ -24,10 +26,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           {THEME_INIT_SCRIPT}
         </Script>
         <ThemeProvider>
-          <div className="flex flex-1 min-h-0">
-            <SidebarNav />
-            <main className="flex-1 min-h-0 flex flex-col overflow-hidden w-full min-w-0">{children}</main>
-          </div>
+          <AuthProvider>
+            <AppShell>{children}</AppShell>
+          </AuthProvider>
         </ThemeProvider>
       </body>
     </html>

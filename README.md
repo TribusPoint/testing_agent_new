@@ -9,7 +9,7 @@ A platform for testing Salesforce AgentForce AI agents. Connect to a Salesforce 
 ```
 testing_agent/
 ├── server/              Python FastAPI — REST API, Salesforce integration, LLM generation, test runner
-├── client/              Next.js 15 — dashboard UI (3-tab app)
+├── client/              Next.js 16 — dashboard UI (sidebar app)
 └── packages/shared/     TypeScript domain types shared with the frontend
 ```
 
@@ -17,12 +17,12 @@ testing_agent/
 
 | Layer | Technology |
 |---|---|
-| Backend | Python 3.13 + FastAPI + Uvicorn |
+| Backend | Python 3.12 + FastAPI + Uvicorn |
 | ORM | SQLAlchemy (async) + Alembic migrations |
 | Database | PostgreSQL 16 |
 | LLM | OpenAI GPT-4o (persona + question generation, evaluation) |
 | Salesforce | AgentForce REST API (`einstein/ai-agent/v1`) + Tooling API |
-| Frontend | Next.js 15 App Router + Tailwind CSS |
+| Frontend | Next.js 16 App Router + Tailwind CSS 4 |
 | Shared types | TypeScript (`packages/shared/`) |
 
 ---

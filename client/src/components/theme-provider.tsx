@@ -46,16 +46,15 @@ type ThemeContextValue = {
 const ThemeContext = createContext<ThemeContextValue | null>(null);
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [mode, setModeState] = useState<ColorMode>("system");
-  const [resolved, setResolved] = useState<"light" | "dark">("light");
+  const [mode, setModeState] = useState<ColorMode>(getStoredMode);
+  const [systemPref, setSystemPref] = useState<"light" | "dark">(() =>
+    typeof window !== "undefined" && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"
+  );
 
-  useEffect(() => {
-    setModeState(getStoredMode());
-  }, []);
+  const resolved: "light" | "dark" = mode === "system" ? systemPref : mode;
 
   useEffect(() => {
     applyColorModeToDocument(mode);
-    setResolved(resolveColorMode(mode));
     try {
       localStorage.setItem(COLOR_MODE_STORAGE_KEY, mode);
     } catch {
@@ -66,8 +65,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
     const mq = window.matchMedia("(prefers-color-scheme: dark)");
     const onChange = () => {
-      applyColorModeToDocument("system");
-      setResolved(resolveColorMode("system"));
+      const next = mq.matches ? "dark" : "light";
+      setSystemPref(next);
+      document.documentElement.classList.toggle("dark", next === "dark");
     };
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);

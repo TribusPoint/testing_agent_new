@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete as sa_delete, update as sa_update, or_
 from datetime import datetime, timezone
 from models.database import get_db, AsyncSessionLocal
-from models.tables import TestRun, TestRunResult, InitiatingQuestion
+from models.tables import TestRun, TestRunResult, InitiatingQuestion, RepoQuestion
 from api.schemas.runs import RunCreate, RunResponse, RunResultResponse
 from api.services.runner_service import execute_run, request_cancel
 from api.services.event_bus import subscribe
@@ -24,7 +24,7 @@ async def create_run(
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
 ):
-    # Load questions to run
+    # Load project questions
     if body.question_ids:
         result = await db.execute(
             select(InitiatingQuestion).where(
@@ -44,10 +44,19 @@ async def create_run(
         )
     questions = result.scalars().all()
 
-    if not questions:
+    # Load repo questions if specified
+    repo_questions: list[RepoQuestion] = []
+    if body.repo_question_ids:
+        repo_result = await db.execute(
+            select(RepoQuestion).where(RepoQuestion.id.in_(body.repo_question_ids))
+        )
+        repo_questions = list(repo_result.scalars().all())
+
+    total = len(questions) + len(repo_questions)
+    if total == 0:
         raise HTTPException(
             status_code=400,
-            detail="No questions for this project and agent. Generate questions on the project, or pick a different agent.",
+            detail="No questions selected. Add project questions, select repo questions, or generate questions first.",
         )
 
     # Create run record
@@ -55,18 +64,28 @@ async def create_run(
         project_id=body.project_id,
         agent_id=body.agent_id,
         status="pending",
-        total_questions=len(questions),
+        total_questions=total,
         completed_questions=0,
     )
     db.add(run)
     await db.flush()
 
-    # Pre-create result rows (one per question)
+    # Pre-create result rows from project questions
     for q in questions:
         db.add(TestRunResult(
             run_id=run.id,
             question_id=q.id,
             question_text=q.question,
+            status="pending",
+            follow_up_utterances=[],
+        ))
+
+    # Pre-create result rows from repo questions (question_id=None since they aren't project questions)
+    for rq in repo_questions:
+        db.add(TestRunResult(
+            run_id=run.id,
+            question_id=None,
+            question_text=rq.question,
             status="pending",
             follow_up_utterances=[],
         ))

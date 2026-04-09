@@ -21,5 +21,8 @@ server/.env
 # Alembic generated (keep versions, skip cache)
 server/alembic/__pycache__/
 
+# Other cloned repos
+hari/
+
 # OS
 .DS_Store

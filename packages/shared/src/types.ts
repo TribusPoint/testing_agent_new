@@ -1,5 +1,5 @@
 // Core domain types shared between server and client.
-// These mirror the Drizzle schema defined in Phase 2.
+// The backend uses SQLAlchemy + Alembic (PostgreSQL).
 
 export interface AgentConfig {
   id: string;

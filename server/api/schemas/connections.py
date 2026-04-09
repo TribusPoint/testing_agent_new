@@ -2,7 +2,7 @@ from pydantic import BaseModel, field_validator
 from datetime import datetime
 from typing import Literal
 
-from api.services.salesforce import normalize_salesforce_domain
+from api.utils import normalize_salesforce_domain
 
 
 # ── Salesforce ────────────────────────────────────────────────────────────────

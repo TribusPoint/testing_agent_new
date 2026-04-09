@@ -1380,7 +1380,7 @@ export default function ConnectionsPage() {
                                 {cands.slice(0, 3).map((c, i) => (
                                   <div key={i} className="flex items-center gap-2 bg-white dark:bg-gray-900 rounded px-2 py-1">
                                     <code className="text-[10px] flex-1 truncate text-violet-700 dark:text-violet-300">{c.selector}</code>
-                                    {c.placeholder && <span className="text-[10px] text-gray-400 shrink-0 truncate max-w-[100px]">"{c.placeholder}"</span>}
+                                    {c.placeholder && <span className="text-[10px] text-gray-400 shrink-0 truncate max-w-[100px]">&quot;{c.placeholder}&quot;</span>}
                                     <button onClick={() => { const key = cat === "input" ? "input_selector" : cat === "send" ? "send_selector" : "response_selector"; setBrowserAgentForm((f) => ({ ...f, [key]: c.selector })); }} className="text-[10px] text-violet-600 hover:underline shrink-0">Use</button>
                                   </div>
                                 ))}
@@ -1412,7 +1412,7 @@ export default function ConnectionsPage() {
                                   return (
                                     <div key={i} className="flex items-center gap-2 py-0.5">
                                       <code className="text-[10px] flex-1 truncate text-blue-600 dark:text-blue-400">{sel}</code>
-                                      {ph && <span className="text-[10px] text-gray-400 truncate max-w-[100px]">"{ph}"</span>}
+                                      {ph && <span className="text-[10px] text-gray-400 truncate max-w-[100px]">&quot;{ph}&quot;</span>}
                                       <button onClick={() => setBrowserAgentForm((f) => ({ ...f, input_selector: sel }))} className="text-[10px] text-violet-600 hover:underline shrink-0">→ Input</button>
                                     </div>
                                   );
@@ -1425,7 +1425,7 @@ export default function ConnectionsPage() {
                                   return (
                                     <div key={i} className="flex items-center gap-2 py-0.5">
                                       <code className="text-[10px] flex-1 truncate text-green-600 dark:text-green-400">{sel}</code>
-                                      {label2 && <span className="text-[10px] text-gray-400 truncate max-w-[100px]">"{label2}"</span>}
+                                      {label2 && <span className="text-[10px] text-gray-400 truncate max-w-[100px]">&quot;{label2}&quot;</span>}
                                       <button onClick={() => setBrowserAgentForm((f) => ({ ...f, send_selector: sel }))} className="text-[10px] text-violet-600 hover:underline shrink-0">→ Send</button>
                                     </div>
                                   );

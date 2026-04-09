@@ -6,6 +6,7 @@ class RunCreate(BaseModel):
     project_id: str
     agent_id: str
     question_ids: list[str] | None = None
+    repo_question_ids: list[str] | None = None
 
 
 class RunResponse(BaseModel):

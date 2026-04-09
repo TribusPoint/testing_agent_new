@@ -9,6 +9,33 @@ def new_uuid():
     return str(uuid.uuid4())
 
 
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
+    email: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
+    password_hash: Mapped[str] = mapped_column(Text, nullable=False)
+    name: Mapped[str] = mapped_column(Text, nullable=False)
+    role: Mapped[str] = mapped_column(Text, nullable=False, default="member")
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    must_change_password: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    api_keys: Mapped[list["ApiKey"]] = relationship("ApiKey", back_populates="owner", passive_deletes=True)
+
+
+class PasswordResetRequest(Base):
+    __tablename__ = "password_reset_requests"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
+    user_id: Mapped[str] = mapped_column(UUID(as_uuid=False), ForeignKey("users.id", ondelete="CASCADE"))
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    user: Mapped["User"] = relationship("User", lazy="joined")
+
+
 class ApiKey(Base):
     __tablename__ = "api_keys"
 
@@ -16,7 +43,10 @@ class ApiKey(Base):
     name: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
     key_hash: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    user_id: Mapped[str | None] = mapped_column(UUID(as_uuid=False), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+    owner: Mapped["User | None"] = relationship("User", back_populates="api_keys")
 
 
 class SalesforceConnection(Base):
@@ -141,6 +171,24 @@ class PersonalityProfile(Base):
     project_id: Mapped[str] = mapped_column(UUID(as_uuid=False), ForeignKey("test_projects.id", ondelete="CASCADE"))
     name: Mapped[str] = mapped_column(Text, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class RepoQuestion(Base):
+    __tablename__ = "repo_questions"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
+    question: Mapped[str] = mapped_column(Text, nullable=False)
+    expected_answer: Mapped[str | None] = mapped_column(Text, nullable=True)
+    domain: Mapped[str] = mapped_column(Text, nullable=False, default="general")
+    category: Mapped[str] = mapped_column(Text, nullable=False, default="uncategorized")
+    tags: Mapped[dict] = mapped_column(JSONB, default=list)
+    source_project_id: Mapped[str | None] = mapped_column(UUID(as_uuid=False), ForeignKey("test_projects.id", ondelete="SET NULL"), nullable=True)
+    persona: Mapped[str | None] = mapped_column(Text, nullable=True)
+    dimension: Mapped[str | None] = mapped_column(Text, nullable=True)
+    dimension_value: Mapped[str | None] = mapped_column(Text, nullable=True)
+    personality_profile: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
 class InitiatingQuestion(Base):

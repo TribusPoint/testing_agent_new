@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: str = ""
     SECRET_KEY: str = "change-me"
     MASTER_API_KEY: str = "master-change-me"
+    JWT_ALGORITHM: str = "HS256"
+    JWT_EXPIRE_MINUTES: int = 1440  # 24 hours
 
     # Comma-separated browser origins (Railway frontend + local dev). Required for cookies/credentials from the UI.
     CORS_ORIGINS: str = (
