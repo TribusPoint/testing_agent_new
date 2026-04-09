@@ -4,15 +4,15 @@
  */
 
 function apiBase(): string {
-  // Treat empty string like unset — `"" ?? default` would incorrectly keep "".
-  let raw = (process.env.NEXT_PUBLIC_API_URL?.trim() || "http://localhost:8080").trim();
-  if (!/^https?:\/\//i.test(raw)) {
-    raw = `https://${raw.replace(/^\/+/, "")}`;
+  const env = process.env.NEXT_PUBLIC_API_URL?.trim();
+  if (!env) return "";
+  if (!/^https?:\/\//i.test(env)) {
+    return `https://${env.replace(/^\/+/, "")}`.replace(/\/+$/, "");
   }
   try {
-    return new URL(raw).origin;
+    return new URL(env).origin;
   } catch {
-    return raw.replace(/\/+$/, "");
+    return env.replace(/\/+$/, "");
   }
 }
 

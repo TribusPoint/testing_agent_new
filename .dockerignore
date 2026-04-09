@@ -2,6 +2,11 @@ node_modules
 dist
 .next
 *.log
+.git
+hari/
 server/.env
 server/.venv
 server/venv
+server/__pycache__
+client/.env.local
+**/__pycache__
