@@ -3,7 +3,7 @@ from datetime import datetime
 from sqlalchemy import String, Text, Integer, Boolean, DateTime, ForeignKey, func
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from models.database import Base
+from models.base import Base
 
 def new_uuid():
     return str(uuid.uuid4())

@@ -1,4 +1,7 @@
+import os
 import re
+from urllib.parse import quote_plus
+
 from pydantic_settings import BaseSettings
 
 
@@ -48,14 +51,30 @@ class Settings(BaseSettings):
         env_file = ".env"
 
     @property
+    def effective_database_url(self) -> str:
+        """Railway Postgres sometimes injects PGHOST/PGUSER/... without DATABASE_URL on the app."""
+        u = (self.DATABASE_URL or "").strip()
+        if u:
+            return u
+        host = (os.environ.get("PGHOST") or "").strip()
+        if not host:
+            return ""
+        user = os.environ.get("PGUSER") or "postgres"
+        password = os.environ.get("PGPASSWORD") or ""
+        db = os.environ.get("PGDATABASE") or "postgres"
+        port = os.environ.get("PGPORT") or "5432"
+        auth = f"{quote_plus(user)}:{quote_plus(password)}@" if password else f"{quote_plus(user)}@"
+        return f"postgresql://{auth}{host}:{port}/{db}"
+
+    @property
     def db_url_async(self) -> str:
-        return _to_async_url(self.DATABASE_URL)
+        return _to_async_url(self.effective_database_url)
 
     @property
     def db_url_sync(self) -> str:
-        if self.DATABASE_URL_SYNC:
+        if (self.DATABASE_URL_SYNC or "").strip():
             return _to_sync_url(self.DATABASE_URL_SYNC)
-        return _to_sync_url(self.DATABASE_URL)
+        return _to_sync_url(self.effective_database_url)
 
 
 settings = Settings()

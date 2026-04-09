@@ -1,4 +1,4 @@
-from models.database import Base
+from models.base import Base
 from models.tables import (
     SalesforceConnection,
     Agent,

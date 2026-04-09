@@ -20,12 +20,22 @@ if config.config_file_name is not None:
 # target_metadata = mymodel.Base.metadata
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-from models.database import Base
+
+from config import settings as _settings
+
+if not (_settings.effective_database_url or "").strip():
+    print(
+        "\nERROR: DATABASE_URL is not set.\n"
+        "On Railway: add PostgreSQL (New → Database → PostgreSQL), then in your app service\n"
+        "Variables add DATABASE_URL referencing the database (e.g. ${{ Postgres.DATABASE_URL }}).\n",
+        file=sys.stderr,
+    )
+    sys.exit(1)
+
+from models.base import Base
 from models import tables  # noqa: F401 — ensure all models are registered
 target_metadata = Base.metadata
 
-# Use the sync DB URL from settings (auto-derived from DATABASE_URL if needed)
-from config import settings as _settings
 config.set_main_option("sqlalchemy.url", _settings.db_url_sync)
 
 # other values from the config, defined by the needs of env.py,
