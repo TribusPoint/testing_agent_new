@@ -24,10 +24,9 @@ from models.database import Base
 from models import tables  # noqa: F401 — ensure all models are registered
 target_metadata = Base.metadata
 
-# Override sqlalchemy.url with DATABASE_URL_SYNC env var if set
-_db_url = os.environ.get("DATABASE_URL_SYNC")
-if _db_url:
-    config.set_main_option("sqlalchemy.url", _db_url)
+# Use the sync DB URL from settings (auto-derived from DATABASE_URL if needed)
+from config import settings as _settings
+config.set_main_option("sqlalchemy.url", _settings.db_url_sync)
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
