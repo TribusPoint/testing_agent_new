@@ -6,6 +6,7 @@ import type { StoredUser } from "@/lib/api";
 import {
   getStoredToken,
   getStoredUser,
+  getStoredKey,
   setStoredToken,
   setStoredUser,
   clearAllAuth,
@@ -71,8 +72,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!isAuthenticated && !PUBLIC_PATHS.includes(pathname) && pathname !== FORCE_PW_PATH) {
-      const hasLegacyKey = typeof window !== "undefined" && !!localStorage.getItem("ta_api_key");
-      if (!hasLegacyKey) {
+      const hasApiKeySession = typeof window !== "undefined" && !!getStoredKey();
+      if (!hasApiKeySession) {
         router.replace("/login");
       }
     }

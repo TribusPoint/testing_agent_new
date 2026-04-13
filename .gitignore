@@ -24,6 +24,7 @@ server/alembic/__pycache__/
 # Other cloned repos
 hari/
 testing_agent_upstream/
+fake/
 
 # OS
 .DS_Store

@@ -3,9 +3,8 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
-import ThemeAppearanceSelect from "@/components/theme-appearance-select";
 import { useAuth } from "@/components/auth-provider";
-import { getStoredKey } from "@/lib/api";
+import SidebarProfilePopover from "@/components/sidebar-profile-popover";
 
 const STORAGE_KEY = "testing-agent-sidebar-collapsed";
 
@@ -44,22 +43,6 @@ function IconRuns({ className }: { className?: string }) {
   );
 }
 
-function IconRepo({ className }: { className?: string }) {
-  return (
-    <svg className={className ?? iconClass} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-    </svg>
-  );
-}
-
-function IconAdmin({ className }: { className?: string }) {
-  return (
-    <svg className={className ?? iconClass} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
-      <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-    </svg>
-  );
-}
-
 function IconSettings({ className }: { className?: string }) {
   return (
     <svg className={className ?? iconClass} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
@@ -69,15 +52,13 @@ function IconSettings({ className }: { className?: string }) {
   );
 }
 
-type NavLink = { href: string; label: string; Icon: (p: { className?: string }) => React.JSX.Element; adminOnly?: boolean };
+type NavLink = { href: string; label: string; Icon: (p: { className?: string }) => React.JSX.Element };
 
 const LINKS: NavLink[] = [
   { href: "/dashboard", label: "Dashboard", Icon: IconDashboard },
   { href: "/connections", label: "Connections", Icon: IconConnections },
   { href: "/projects", label: "Projects", Icon: IconProjects },
   { href: "/runs", label: "Runs", Icon: IconRuns },
-  { href: "/questions-repo", label: "Questions Repo", Icon: IconRepo },
-  { href: "/admin", label: "Admin Access", Icon: IconAdmin, adminOnly: true },
   { href: "/settings", label: "Settings", Icon: IconSettings },
 ];
 
@@ -93,8 +74,7 @@ function getInitialCollapsed(): boolean {
 export default function SidebarNav() {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(getInitialCollapsed);
-  const { user, handleLogout } = useAuth();
-  const isApiKeySession = typeof window !== "undefined" && !!getStoredKey() && !user;
+  const { user } = useAuth();
 
   useEffect(() => {
     try {
@@ -160,7 +140,7 @@ export default function SidebarNav() {
         </button>
       </div>
       <nav className="flex-1 overflow-y-auto overflow-x-hidden p-2 flex flex-col gap-0.5">
-        {LINKS.filter((l) => !l.adminOnly || user?.role === "admin").map(({ href, label, Icon }) => {
+        {LINKS.map(({ href, label, Icon }) => {
           const active = pathname === href || (href !== "/dashboard" && pathname.startsWith(href));
           return (
             <Link
@@ -182,43 +162,7 @@ export default function SidebarNav() {
           );
         })}
       </nav>
-      <ThemeAppearanceSelect collapsed={collapsed} />
-      {(user || isApiKeySession) && (
-        <div
-          className={`border-t border-gray-200 dark:border-gray-800 shrink-0 p-2 ${
-            collapsed ? "flex flex-col items-center gap-1" : "flex items-center gap-2"
-          }`}
-        >
-          <div
-            className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
-              user
-                ? "bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300"
-                : "bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400"
-            }`}
-            title={user ? user.name : "API Key"}
-          >
-            {user ? user.name.charAt(0).toUpperCase() : "K"}
-          </div>
-          {!collapsed && (
-            <div className="min-w-0 flex-1">
-              <p className="text-xs font-medium text-gray-900 dark:text-white truncate">{user ? user.name : "API Key"}</p>
-              <p className="text-[10px] text-gray-400 truncate">{user ? user.role : "key session"}</p>
-            </div>
-          )}
-          <button
-            type="button"
-            onClick={handleLogout}
-            title="Sign out"
-            className={`p-1.5 rounded-lg text-gray-400 hover:text-red-500 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors ${
-              collapsed ? "" : "ml-auto shrink-0"
-            }`}
-          >
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2} aria-hidden>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-            </svg>
-          </button>
-        </div>
-      )}
+      <SidebarProfilePopover collapsed={collapsed} />
     </aside>
   );
 }

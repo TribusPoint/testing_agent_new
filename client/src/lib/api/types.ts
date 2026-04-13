@@ -329,6 +329,39 @@ export interface WeakQuestion {
   pass_rate: number | null;
 }
 
+// Failure analysis
+export interface FailureBreakdown {
+  name: string;
+  total: number;
+  failed: number;
+  failure_rate: number;
+}
+
+export interface DimensionFailure {
+  dimension: string;
+  value: string;
+  total: number;
+  failed: number;
+  failure_rate: number;
+}
+
+export interface AgentFailure {
+  agent_id: string;
+  agent_name: string;
+  total: number;
+  failed: number;
+  failure_rate: number;
+  avg_score: number | null;
+}
+
+export interface HeatmapCell {
+  personality: string;
+  dimension: string;
+  total: number;
+  failed: number;
+  failure_rate: number;
+}
+
 // Questions Repository
 export interface RepoQuestion {
   id: string;

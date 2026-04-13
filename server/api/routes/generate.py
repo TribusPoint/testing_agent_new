@@ -36,18 +36,26 @@ async def gen_personas(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    agent = await db.get(Agent, body.agent_id)
-    if not agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
+    agent_name = ""
+    topics: list = []
+    actions: list = []
+    agent_id = body.agent_id or None
+    if agent_id:
+        agent = await db.get(Agent, agent_id)
+        if not agent:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        agent_name = agent.name
+        topics = agent.topics or []
+        actions = agent.actions or []
 
     personas = await generate_personas(
         company_name=project.company_name or "",
         company_websites=project.company_websites or "",
         industry=project.industry or "",
         competitors=project.competitors or "",
-        agent_name=agent.name,
-        topics=agent.topics or [],
-        actions=agent.actions or [],
+        agent_name=agent_name,
+        topics=topics,
+        actions=actions,
         count=body.count,
     )
 
@@ -55,7 +63,7 @@ async def gen_personas(
     for p in personas:
         obj = Persona(
             project_id=project_id,
-            agent_id=body.agent_id,
+            agent_id=agent_id,
             name=p["name"],
             description=p.get("persona") or p.get("description"),
             goal=p.get("goal"),
@@ -180,6 +188,8 @@ async def gen_questions(
     if project.company_name:
         eval_subject = f"{project.name} ({project.company_name})"
 
+    total = body.questions_per_agent or (body.questions_per_persona * len(personas))
+
     questions = await generate_initiating_questions(
         company_name=project.company_name or "",
         industry=project.industry or "",
@@ -187,7 +197,7 @@ async def gen_questions(
         personas=personas,
         dim_values=dim_values,
         profile_names=profile_names,
-        questions_per_agent=body.questions_per_agent,
+        questions_per_agent=total,
     )
 
     saved = []

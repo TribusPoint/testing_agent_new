@@ -1,11 +1,13 @@
 import logging
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel, Field
 from config import settings
 from api.middleware.auth import verify_api_key
-from api.services.llm.factory import llm_config
+from api.services.llm.factory import llm_config, log_startup_llm_env
 from api.routes.auth import router as auth_router
 from api.routes.connections import router as connections_router
 from api.routes.agents import router as agents_router
@@ -44,6 +46,7 @@ async def _seed_default_admin():
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    log_startup_llm_env()
     try:
         await _seed_default_admin()
     except Exception as e:
@@ -95,6 +98,45 @@ async def health():
     return {"status": "ok", "env": settings.APP_ENV}
 
 
+class LlmProviderUpdate(BaseModel):
+    provider: str = Field(..., description="openai or anthropic")
+
+
 @app.get("/api/config")
 async def get_config(_: str = Depends(verify_api_key)):
+    return llm_config()
+
+
+@app.patch("/api/config")
+async def patch_llm_provider(
+    body: LlmProviderUpdate,
+    _: str = Depends(verify_api_key),
+):
+    """Update LLM_PROVIDER in server/.env (local dev). On Railway, set Variables instead."""
+    p = (body.provider or "").strip().lower()
+    if p not in ("openai", "anthropic"):
+        raise HTTPException(status_code=400, detail="provider must be openai or anthropic")
+    env_path = Path(__file__).resolve().parent / ".env"
+    if not env_path.is_file():
+        raise HTTPException(
+            status_code=503,
+            detail="No server/.env file — set LLM_PROVIDER in Railway Variables or create server/.env",
+        )
+    text = env_path.read_text(encoding="utf-8")
+    lines = text.splitlines(keepends=True)
+    found = False
+    out: list[str] = []
+    for line in lines:
+        stripped = line.lstrip()
+        if stripped.startswith("LLM_PROVIDER="):
+            out.append(f"LLM_PROVIDER={p}\n")
+            found = True
+        else:
+            out.append(line)
+    if not found:
+        if out and not out[-1].endswith("\n"):
+            out[-1] = out[-1] + "\n"
+        out.append(f"LLM_PROVIDER={p}\n")
+    env_path.write_text("".join(out), encoding="utf-8")
+    settings.LLM_PROVIDER = p
     return llm_config()

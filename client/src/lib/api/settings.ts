@@ -1,8 +1,22 @@
 import { req, BASE } from "./client";
 import type { ApiKeyInfo, ApiKeyCreated } from "./types";
 
-export const getLlmConfig = () =>
-  req<{ provider: string; generation_model: string; evaluation_model: string; utterance_model: string }>("/api/config");
+export type LlmConfig = {
+  provider: string;
+  generation_model: string;
+  evaluation_model: string;
+  utterance_model: string;
+  openai_key_set: boolean;
+  anthropic_key_set: boolean;
+};
+
+export const getLlmConfig = () => req<LlmConfig>("/api/config");
+
+export const updateLlmProvider = (provider: "openai" | "anthropic") =>
+  req<LlmConfig>("/api/config", {
+    method: "PATCH",
+    body: JSON.stringify({ provider }),
+  });
 
 export const verifyKey = (key: string) =>
   fetch(`${BASE}/api/auth/verify`, {

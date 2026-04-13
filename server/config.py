@@ -2,7 +2,7 @@ import os
 import re
 from urllib.parse import quote_plus
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 def _to_async_url(url: str) -> str:
@@ -16,6 +16,11 @@ def _to_sync_url(url: str) -> str:
 
 
 class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        env_file_encoding="utf-8",
+    )
+
     APP_ENV: str = "development"
     DEBUG: bool = True
 
@@ -46,9 +51,6 @@ class Settings(BaseSettings):
     SF_RETRY_DELAY: float = 1.0
     MAX_CONV_CHARS: int = 8000
     MAX_FOLLOW_UPS: int = 5
-
-    class Config:
-        env_file = ".env"
 
     @property
     def effective_database_url(self) -> str:

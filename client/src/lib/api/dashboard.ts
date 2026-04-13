@@ -1,5 +1,8 @@
 import { req } from "./client";
-import type { DashboardSummary, AgentOption, AgentTrend, WeakQuestion } from "./types";
+import type {
+  DashboardSummary, AgentOption, AgentTrend, WeakQuestion,
+  FailureBreakdown, DimensionFailure, AgentFailure, HeatmapCell,
+} from "./types";
 
 export const getDashboardSummary = () =>
   req<DashboardSummary>("/api/dashboard/summary");
@@ -21,3 +24,18 @@ export const getWeakestQuestions = (params?: {
   if (params?.limit) p.set("limit", String(params.limit));
   return req<WeakQuestion[]>(`/api/dashboard/questions/weakest?${p}`);
 };
+
+export const getFailuresByPersonality = () =>
+  req<FailureBreakdown[]>("/api/dashboard/failures/by-personality");
+
+export const getFailuresByPersona = () =>
+  req<FailureBreakdown[]>("/api/dashboard/failures/by-persona");
+
+export const getFailuresByDimension = () =>
+  req<DimensionFailure[]>("/api/dashboard/failures/by-dimension");
+
+export const getFailuresByAgent = () =>
+  req<AgentFailure[]>("/api/dashboard/failures/by-agent");
+
+export const getFailuresHeatmap = () =>
+  req<HeatmapCell[]>("/api/dashboard/failures/heatmap");

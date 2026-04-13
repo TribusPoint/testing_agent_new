@@ -24,7 +24,7 @@ export const analyzeProjectSite = (projectId: string, body: { url?: string | nul
 export const generatePersonas = (projectId: string, agentId: string, count = 4) =>
   req<Persona[]>(`/api/projects/${projectId}/generate/personas`, {
     method: "POST",
-    body: JSON.stringify({ agent_id: agentId, count }),
+    body: JSON.stringify({ agent_id: agentId || null, count }),
   });
 
 export const generateDimensions = (projectId: string) =>
@@ -33,10 +33,10 @@ export const generateDimensions = (projectId: string) =>
 export const generateProfiles = (projectId: string) =>
   req<PersonalityProfile[]>(`/api/projects/${projectId}/generate/personality-profiles`, { method: "POST", body: "{}" });
 
-export const generateQuestions = (projectId: string, n = 30) =>
+export const generateQuestions = (projectId: string, perPersona = 3) =>
   req<Question[]>(`/api/projects/${projectId}/generate/questions`, {
     method: "POST",
-    body: JSON.stringify({ questions_per_agent: n }),
+    body: JSON.stringify({ questions_per_persona: perPersona }),
   });
 
 // Context data

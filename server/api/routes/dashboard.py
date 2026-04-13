@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, case
+from sqlalchemy import select, func, case, and_
 from models.database import get_db
-from models.tables import TestRun, TestRunResult, Agent
+from models.tables import TestRun, TestRunResult, Agent, InitiatingQuestion
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -171,6 +171,164 @@ async def get_weakest_questions(
             "max_score": r.max_score,
             "run_count": r.run_count,
             "pass_rate": round(r.pass_count / r.run_count * 100, 1) if r.run_count else None,
+        }
+        for r in rows
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Failure analysis helpers
+# ---------------------------------------------------------------------------
+
+_FAIL_CONDITION = and_(
+    TestRunResult.status == "completed",
+    TestRunResult.score.isnot(None),
+)
+
+_IS_FAIL = case(
+    (TestRunResult.score < 70, TestRunResult.id),
+    else_=None,
+)
+
+
+def _failure_base():
+    """Common select columns for failure-analysis endpoints."""
+    return select(
+        func.count(TestRunResult.id).label("total"),
+        func.count(_IS_FAIL).label("failed"),
+    ).join(
+        InitiatingQuestion,
+        TestRunResult.question_id == InitiatingQuestion.id,
+    ).where(_FAIL_CONDITION)
+
+
+@router.get("/failures/by-personality")
+async def failures_by_personality(db: AsyncSession = Depends(get_db)):
+    """Failure rate grouped by personality profile."""
+    q = (
+        _failure_base()
+        .add_columns(InitiatingQuestion.personality_profile.label("name"))
+        .where(InitiatingQuestion.personality_profile.isnot(None))
+        .group_by(InitiatingQuestion.personality_profile)
+        .order_by(func.count(_IS_FAIL).desc())
+    )
+    rows = (await db.execute(q)).all()
+    return [
+        {
+            "name": r.name,
+            "total": r.total,
+            "failed": r.failed,
+            "failure_rate": round(r.failed / r.total * 100, 1) if r.total else 0,
+        }
+        for r in rows
+    ]
+
+
+@router.get("/failures/by-persona")
+async def failures_by_persona(db: AsyncSession = Depends(get_db)):
+    """Failure rate grouped by persona."""
+    q = (
+        _failure_base()
+        .add_columns(InitiatingQuestion.persona.label("name"))
+        .where(InitiatingQuestion.persona.isnot(None))
+        .group_by(InitiatingQuestion.persona)
+        .order_by(func.count(_IS_FAIL).desc())
+    )
+    rows = (await db.execute(q)).all()
+    return [
+        {
+            "name": r.name,
+            "total": r.total,
+            "failed": r.failed,
+            "failure_rate": round(r.failed / r.total * 100, 1) if r.total else 0,
+        }
+        for r in rows
+    ]
+
+
+@router.get("/failures/by-dimension")
+async def failures_by_dimension(db: AsyncSession = Depends(get_db)):
+    """Failure rate grouped by dimension + dimension value."""
+    q = (
+        _failure_base()
+        .add_columns(
+            InitiatingQuestion.dimension.label("dimension"),
+            InitiatingQuestion.dimension_value.label("value"),
+        )
+        .where(
+            InitiatingQuestion.dimension.isnot(None),
+            InitiatingQuestion.dimension_value.isnot(None),
+        )
+        .group_by(InitiatingQuestion.dimension, InitiatingQuestion.dimension_value)
+        .order_by(func.count(_IS_FAIL).desc())
+    )
+    rows = (await db.execute(q)).all()
+    return [
+        {
+            "dimension": r.dimension,
+            "value": r.value,
+            "total": r.total,
+            "failed": r.failed,
+            "failure_rate": round(r.failed / r.total * 100, 1) if r.total else 0,
+        }
+        for r in rows
+    ]
+
+
+@router.get("/failures/by-agent")
+async def failures_by_agent(db: AsyncSession = Depends(get_db)):
+    """Failure rate grouped by agent."""
+    q = (
+        select(
+            func.count(TestRunResult.id).label("total"),
+            func.count(_IS_FAIL).label("failed"),
+            func.avg(TestRunResult.score).label("avg_score"),
+            TestRun.agent_id,
+            Agent.name.label("agent_name"),
+        )
+        .join(TestRun, TestRunResult.run_id == TestRun.id)
+        .join(Agent, TestRun.agent_id == Agent.id)
+        .where(_FAIL_CONDITION)
+        .group_by(TestRun.agent_id, Agent.name)
+        .order_by(func.count(_IS_FAIL).desc())
+    )
+    rows = (await db.execute(q)).all()
+    return [
+        {
+            "agent_id": r.agent_id,
+            "agent_name": r.agent_name,
+            "total": r.total,
+            "failed": r.failed,
+            "failure_rate": round(r.failed / r.total * 100, 1) if r.total else 0,
+            "avg_score": round(float(r.avg_score), 1) if r.avg_score is not None else None,
+        }
+        for r in rows
+    ]
+
+
+@router.get("/failures/heatmap")
+async def failures_heatmap(db: AsyncSession = Depends(get_db)):
+    """Cross-tabulation: personality_profile x dimension for heatmap."""
+    q = (
+        _failure_base()
+        .add_columns(
+            InitiatingQuestion.personality_profile.label("personality"),
+            InitiatingQuestion.dimension.label("dimension"),
+        )
+        .where(
+            InitiatingQuestion.personality_profile.isnot(None),
+            InitiatingQuestion.dimension.isnot(None),
+        )
+        .group_by(InitiatingQuestion.personality_profile, InitiatingQuestion.dimension)
+    )
+    rows = (await db.execute(q)).all()
+    return [
+        {
+            "personality": r.personality,
+            "dimension": r.dimension,
+            "total": r.total,
+            "failed": r.failed,
+            "failure_rate": round(r.failed / r.total * 100, 1) if r.total else 0,
         }
         for r in rows
     ]

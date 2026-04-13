@@ -186,7 +186,13 @@ async def analyze_site_with_llm(
     if raw.startswith("```"):
         raw = re.sub(r"^```(?:json)?\s*", "", raw)
         raw = re.sub(r"\s*```\s*$", "", raw)
-    data = json.loads(raw)
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError as e:
+        raise ValueError(
+            f"Site analysis model returned invalid JSON: {e.msg} at position {e.pos}. "
+            "Try again or shorten the page content."
+        ) from e
 
     # Normalize to UI-ready structure with stable tone assignment
     aud = [str(x).strip() for x in data.get("audience_segments") or [] if str(x).strip()]

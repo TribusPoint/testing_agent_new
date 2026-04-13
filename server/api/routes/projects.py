@@ -250,6 +250,8 @@ async def analyze_project_site(
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
     except Exception as e:
         logger.exception(
             "analyze-site failed project_id=%s url=%s",
