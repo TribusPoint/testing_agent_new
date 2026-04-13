@@ -220,10 +220,13 @@ function FailureBreakdownSection() {
               />
               <Tooltip
                 contentStyle={{ fontSize: 12, borderRadius: 8, border: "1px solid #e5e7eb" }}
-                formatter={(value: number, _name: string, entry: { payload: { failed: number; total: number } }) => [
-                  `${value}% (${entry.payload.failed}/${entry.payload.total})`,
-                  "Failure Rate",
-                ]}
+                formatter={(value, _name, entry) => {
+                  const p = entry?.payload as { failed?: number; total?: number } | undefined;
+                  return [
+                    `${value ?? 0}% (${p?.failed ?? 0}/${p?.total ?? 0})`,
+                    "Failure Rate",
+                  ];
+                }}
               />
               <Bar dataKey="failure_rate" radius={[0, 4, 4, 0]} barSize={20}>
                 {chartData.map((entry, idx) => (
