@@ -156,6 +156,12 @@ pnpm dev      # http://localhost:3000
 
 ---
 
+## Deployment (Azure App Service)
+
+Production deploy uses the **root `Dockerfile`** (Next.js + API in one container). GitHub Actions workflow: `.github/workflows/azure-app-service.yml`. Full setup (ACR, Postgres, Web App, secrets): [docs/azure-app-service.md](docs/azure-app-service.md).
+
+---
+
 ## Implementation Phases
 
 | Phase | Status | Description |
