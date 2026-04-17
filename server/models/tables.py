@@ -49,24 +49,22 @@ class ApiKey(Base):
     owner: Mapped["User | None"] = relationship("User", back_populates="api_keys")
 
 
-class SalesforceConnection(Base):
-    __tablename__ = "salesforce_connections"
+class ServiceConnection(Base):
+    """Outbound integration (Salesforce, HTTP, browser, etc.). Table name: connections."""
+
+    __tablename__ = "connections"
 
     id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
     name: Mapped[str] = mapped_column(Text, nullable=False)
-    # connection_type: "salesforce" | "http"
     connection_type: Mapped[str] = mapped_column(Text, nullable=False, default="salesforce")
-    # Salesforce fields (nullable for HTTP connections)
     domain: Mapped[str] = mapped_column(Text, nullable=False, default="")
     consumer_key: Mapped[str] = mapped_column(Text, nullable=False, default="")
     consumer_secret: Mapped[str] = mapped_column(Text, nullable=False, default="")
     default_agent_id: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Generic config for non-Salesforce connection types (auth, base_url, etc.)
     config: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
-    # DB uses ON DELETE CASCADE on agents.connection_id; tell ORM not to null FKs first.
     agents: Mapped[list["Agent"]] = relationship(
         "Agent", back_populates="connection", passive_deletes=True
     )
@@ -76,7 +74,7 @@ class Agent(Base):
     __tablename__ = "agents"
 
     id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
-    connection_id: Mapped[str] = mapped_column(UUID(as_uuid=False), ForeignKey("salesforce_connections.id", ondelete="CASCADE"))
+    connection_id: Mapped[str] = mapped_column(UUID(as_uuid=False), ForeignKey("connections.id", ondelete="CASCADE"))
     salesforce_id: Mapped[str] = mapped_column(Text, nullable=False)
     name: Mapped[str] = mapped_column(Text, nullable=False)
     developer_name: Mapped[str] = mapped_column(Text, nullable=False)
@@ -91,7 +89,7 @@ class Agent(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
 
-    connection: Mapped["SalesforceConnection"] = relationship("SalesforceConnection", back_populates="agents")
+    connection: Mapped["ServiceConnection"] = relationship("ServiceConnection", back_populates="agents")
 
 
 class TestProject(Base):

@@ -1,17 +1,16 @@
-import uuid
-import hashlib
+import secrets
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
 import jwt
 from fastapi import APIRouter, Depends, HTTPException, Security, status
 from fastapi.security import APIKeyHeader, HTTPBearer, HTTPAuthorizationCredentials
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
 from models.database import get_db, AsyncSessionLocal
-from models.tables import ApiKey, User, PasswordResetRequest
+from models.tables import User, PasswordResetRequest
 from config import settings
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -22,10 +21,6 @@ _master_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-def _hash_api_key(plain: str) -> str:
-    return hashlib.sha256(plain.encode()).hexdigest()
-
 
 def _hash_password(plain: str) -> str:
     return bcrypt.hashpw(plain.encode(), bcrypt.gensalt()).decode()
@@ -48,11 +43,6 @@ def _user_response(u: User) -> "UserResponse":
         must_change_password=u.must_change_password,
         created_at=u.created_at.isoformat(),
     )
-
-
-def _require_master(key: str | None = Security(_master_header)) -> None:
-    if not key or key != settings.MASTER_API_KEY:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Master key required")
 
 
 _admin_bearer = HTTPBearer(auto_error=False)
@@ -107,8 +97,20 @@ class RegisterRequest(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    """`email` is the sign-in identifier: member emails, or Username `admin` for the seeded admin@admin.com account."""
+
+    email: str
     password: str
+
+    @field_validator("email")
+    @classmethod
+    def _strip_login_ident(cls, v: object) -> str:
+        if not isinstance(v, str):
+            raise ValueError("Invalid sign-in identifier")
+        s = v.strip()
+        if not s:
+            raise ValueError("Email or Username is required")
+        return s
 
 
 class AdminLoginRequest(BaseModel):
@@ -150,12 +152,18 @@ class AdminCreateUserRequest(BaseModel):
 
 
 class AdminChangePasswordRequest(BaseModel):
+    """Admin-only user reset. `secret` must match settings.ADMIN_PASSWORD_SECRET_CODE. Members use POST /change-password instead."""
+
     password: str
+    secret: str
 
 
 class SelfChangePasswordRequest(BaseModel):
+    """Self-service password change. Admin users must send `secret` matching ADMIN_PASSWORD_SECRET_CODE."""
+
     current_password: str
     new_password: str
+    secret: str | None = None
 
 
 class ForgotPasswordRequest(BaseModel):
@@ -164,6 +172,7 @@ class ForgotPasswordRequest(BaseModel):
 
 class ApproveResetRequest(BaseModel):
     temp_password: str
+    secret: str
 
 
 class PasswordResetResponse(BaseModel):
@@ -175,23 +184,9 @@ class PasswordResetResponse(BaseModel):
     created_at: str
 
 
-class KeyCreate(BaseModel):
-    name: str
-
-
-class KeyResponse(BaseModel):
-    id: str
-    name: str
-    is_active: bool
-    created_at: str
-
-
-class KeyCreated(KeyResponse):
-    plain_key: str
-
-
 # ---------------------------------------------------------------------------
-# Admin Login (seeded admin only — username/password)
+# Legacy admin login (same as POST /login with email=admin + password).
+# Prefer unified /login with identifier "admin" or admin@admin.com.
 # ---------------------------------------------------------------------------
 
 @router.post("/admin-login", response_model=TokenResponse)
@@ -237,7 +232,12 @@ async def register(body: RegisterRequest, db: AsyncSession = Depends(get_db)):
 
 @router.post("/login", response_model=TokenResponse)
 async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(User).where(func.lower(User.email) == body.email.lower()))
+    ident = body.email
+    lowered = ident.lower()
+    if lowered == "admin":
+        result = await db.execute(select(User).where(User.email == "admin@admin.com"))
+    else:
+        result = await db.execute(select(User).where(func.lower(User.email) == lowered))
     user = result.scalar_one_or_none()
 
     if not user or not _verify_password(body.password, user.password_hash):
@@ -271,6 +271,16 @@ async def change_own_password(
 ):
     if not _verify_password(body.current_password, user.password_hash):
         raise HTTPException(status_code=401, detail="Current password is incorrect")
+    if user.role == "admin":
+        secret = (body.secret or "").strip()
+        code = (settings.ADMIN_PASSWORD_SECRET_CODE or "").strip()
+        if not code:
+            raise HTTPException(
+                status_code=400,
+                detail="Admin password secret is not configured on the server",
+            )
+        if not secret or not secrets.compare_digest(secret, code):
+            raise HTTPException(status_code=401, detail="Invalid admin secret code")
     if len(body.new_password) < 4:
         raise HTTPException(status_code=400, detail="New password must be at least 4 characters")
     user.password_hash = _hash_password(body.new_password)
@@ -333,6 +343,13 @@ async def approve_password_reset(
     db: AsyncSession = Depends(get_db),
     _: None = Depends(_require_admin),
 ):
+    secret = (body.secret or "").strip()
+    code = (settings.ADMIN_PASSWORD_SECRET_CODE or "").strip()
+    if not secret or not code:
+        raise HTTPException(status_code=400, detail="Secret code is required to approve a password reset")
+    if not secrets.compare_digest(secret, code):
+        raise HTTPException(status_code=401, detail="Invalid secret code")
+
     req = await db.get(PasswordResetRequest, reset_id)
     if not req or req.status != "pending":
         raise HTTPException(status_code=404, detail="Reset request not found")
@@ -428,6 +445,13 @@ async def admin_change_user_password(
     db: AsyncSession = Depends(get_db),
     _: None = Depends(_require_admin),
 ):
+    secret = (body.secret or "").strip()
+    code = (settings.ADMIN_PASSWORD_SECRET_CODE or "").strip()
+    if not secret or not code:
+        raise HTTPException(status_code=400, detail="Secret code is required")
+    if not secrets.compare_digest(secret, code):
+        raise HTTPException(status_code=401, detail="Invalid secret code")
+
     user = await db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -452,88 +476,9 @@ async def delete_user(
     await db.commit()
 
 
-# ---------------------------------------------------------------------------
-# API Key Management (master key required)
-# ---------------------------------------------------------------------------
-
-@router.post("/keys", response_model=KeyCreated, status_code=201)
-async def create_key(
-    body: KeyCreate,
-    db: AsyncSession = Depends(get_db),
-    _: None = Depends(_require_master),
-):
-    existing = await db.execute(select(ApiKey).where(ApiKey.name == body.name))
-    if existing.scalar_one_or_none():
-        raise HTTPException(status_code=409, detail=f"Key named '{body.name}' already exists")
-
-    plain = f"ta_{uuid.uuid4().hex}"
-    key = ApiKey(name=body.name, key_hash=_hash_api_key(plain))
-    db.add(key)
-    await db.commit()
-    await db.refresh(key)
-    return KeyCreated(
-        id=key.id, name=key.name, is_active=key.is_active,
-        created_at=key.created_at.isoformat(), plain_key=plain,
-    )
-
-
-@router.get("/keys", response_model=list[KeyResponse])
-async def list_keys(
-    db: AsyncSession = Depends(get_db),
-    _: None = Depends(_require_master),
-):
-    result = await db.execute(select(ApiKey).order_by(ApiKey.created_at))
-    return [
-        KeyResponse(id=k.id, name=k.name, is_active=k.is_active, created_at=k.created_at.isoformat())
-        for k in result.scalars().all()
-    ]
-
-
-@router.delete("/keys/{key_id}", status_code=204)
-async def revoke_key(
-    key_id: str,
-    db: AsyncSession = Depends(get_db),
-    _: None = Depends(_require_master),
-):
-    key = await db.get(ApiKey, key_id)
-    if not key:
-        raise HTTPException(status_code=404, detail="Key not found")
-    key.is_active = False
-    await db.commit()
-
-
-@router.patch("/keys/{key_id}/reactivate", response_model=KeyResponse)
-async def reactivate_key(
-    key_id: str,
-    db: AsyncSession = Depends(get_db),
-    _: None = Depends(_require_master),
-):
-    key = await db.get(ApiKey, key_id)
-    if not key:
-        raise HTTPException(status_code=404, detail="Key not found")
-    key.is_active = True
-    await db.commit()
-    await db.refresh(key)
-    return KeyResponse(id=key.id, name=key.name, is_active=key.is_active, created_at=key.created_at.isoformat())
-
-
-@router.delete("/keys/{key_id}/permanent", status_code=204)
-async def delete_key_permanently(
-    key_id: str,
-    db: AsyncSession = Depends(get_db),
-    _: None = Depends(_require_master),
-):
-    """Permanently delete a key from the database, freeing up the name."""
-    key = await db.get(ApiKey, key_id)
-    if not key:
-        raise HTTPException(status_code=404, detail="Key not found")
-    await db.delete(key)
-    await db.commit()
-
-
 @router.post("/verify")
 async def verify_key(raw_key: str | None = Security(_master_header)):
-    """Confirm an API key or JWT works. Returns identity info."""
+    """Confirm master key or JWT (optional health / tooling)."""
     if not raw_key:
         raise HTTPException(status_code=401, detail="Missing key")
 
@@ -550,12 +495,4 @@ async def verify_key(raw_key: str | None = Security(_master_header)):
                     return {"valid": True, "name": user.name, "user_id": user.id, "role": user.role}
         raise HTTPException(status_code=401, detail="Invalid token")
 
-    key_hash = _hash_api_key(raw_key)
-    async with AsyncSessionLocal() as db:
-        result = await db.execute(
-            select(ApiKey).where(ApiKey.key_hash == key_hash, ApiKey.is_active == True)  # noqa: E712
-        )
-        row = result.scalar_one_or_none()
-    if not row:
-        raise HTTPException(status_code=401, detail="Invalid or revoked API key")
-    return {"valid": True, "name": row.name}
+    raise HTTPException(status_code=401, detail="Invalid key or token")

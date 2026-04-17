@@ -25,6 +25,7 @@ server/alembic/__pycache__/
 hari/
 testing_agent_upstream/
 fake/
+OLD VERSION/
 
 # OS
 .DS_Store

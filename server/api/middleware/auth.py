@@ -1,20 +1,13 @@
-import hashlib
-
 import jwt
 from fastapi import Security, HTTPException, Request, status
 from fastapi.security import APIKeyHeader, HTTPBearer, HTTPAuthorizationCredentials
-from sqlalchemy import select
 
 from models.database import AsyncSessionLocal
-from models.tables import ApiKey, User
+from models.tables import User
 from config import settings
 
 _api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 _bearer_scheme = HTTPBearer(auto_error=False)
-
-
-def _hash_key(plain: str) -> str:
-    return hashlib.sha256(plain.encode()).hexdigest()
 
 
 async def _decode_jwt_token(token: str) -> str | None:
@@ -34,7 +27,7 @@ async def verify_api_key(
     """
     FastAPI dependency — accepts either:
       1. Authorization: Bearer <jwt>   -> resolves user, returns user name
-      2. X-API-Key: <api_key>          -> validates against api_keys table, returns key name
+      2. X-API-Key: <MASTER_API_KEY>   -> machine access (no user row)
     Attaches `request.state.user` when JWT auth is used.
     """
     if bearer and bearer.credentials:
@@ -46,22 +39,11 @@ async def verify_api_key(
                     request.state.user = user
                     return user.name
 
-    if api_key:
-        if api_key == settings.MASTER_API_KEY:
-            request.state.user = None
-            return "master"
-
-        key_hash = _hash_key(api_key)
-        async with AsyncSessionLocal() as db:
-            result = await db.execute(
-                select(ApiKey).where(ApiKey.key_hash == key_hash, ApiKey.is_active == True)  # noqa: E712
-            )
-            row = result.scalar_one_or_none()
-        if row:
-            request.state.user = None
-            return row.name
+    if api_key and api_key == settings.MASTER_API_KEY:
+        request.state.user = None
+        return "master"
 
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Missing or invalid authentication. Provide a Bearer JWT token or X-API-Key header.",
+        detail="Missing or invalid authentication. Provide Authorization: Bearer <JWT> or X-API-Key with the master key.",
     )

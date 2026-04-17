@@ -31,8 +31,12 @@ class Settings(BaseSettings):
 
     OPENAI_API_KEY: str = ""
     ANTHROPIC_API_KEY: str = ""
+    # Google AI Studio / Gemini (https://aistudio.google.com/apikey)
+    GOOGLE_API_KEY: str = ""
     SECRET_KEY: str = "change-me"
     MASTER_API_KEY: str = "master-change-me"
+    # Admin: POST /change-password (admin users), PATCH /users/{id}/password, POST …/password-resets/{id}/approve.
+    ADMIN_PASSWORD_SECRET_CODE: str = "TribusPoint"
     JWT_ALGORITHM: str = "HS256"
     JWT_EXPIRE_MINUTES: int = 1440
 

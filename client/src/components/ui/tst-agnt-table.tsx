@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, type ReactNode } from "react";
+import { InfoHint } from "./info-hint";
 import {
   useReactTable,
   getCoreRowModel,
@@ -28,6 +29,9 @@ export interface TstAgntTableProps<T extends Record<string, unknown>> {
   data: T[];
   columns: TstAgntColumnConfig<T>[];
   tableTitle?: React.ReactNode;
+  /** Shown next to the title behind the info icon (hover / click). */
+  tableTitleHint?: ReactNode;
+  tableTitleHintLabel?: string;
   actions?: React.ReactNode;
   enableSearch?: boolean;
   searchPlaceholder?: string;
@@ -82,6 +86,8 @@ export function TstAgntTable<T extends Record<string, unknown>>({
   data,
   columns: columnConfigs,
   tableTitle,
+  tableTitleHint,
+  tableTitleHintLabel,
   actions,
   enableSearch = true,
   searchPlaceholder = "Search...",
@@ -169,8 +175,11 @@ export function TstAgntTable<T extends Record<string, unknown>>({
         <div className="flex items-center justify-between gap-3 px-3 py-2.5 border border-gray-200 dark:border-gray-700 rounded-t-lg bg-gray-50 dark:bg-gray-800/60">
           <div className="flex items-center gap-3 min-w-0">
             {tableTitle && (
-              <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 truncate">
-                {tableTitle}
+              <span className="flex min-w-0 flex-wrap items-center gap-1.5">
+                <span className="text-xs font-semibold text-gray-700 dark:text-gray-300 truncate">{tableTitle}</span>
+                {tableTitleHint ? (
+                  <InfoHint label={tableTitleHintLabel ?? "About this list"}>{tableTitleHint}</InfoHint>
+                ) : null}
               </span>
             )}
             {enableSearch && (

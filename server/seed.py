@@ -379,7 +379,7 @@ def clear_tables(cur):
         "test_run_results", "test_runs", "initiating_questions",
         "personality_profiles", "dimension_values", "dimensions",
         "personas", "products", "project_agents",
-        "agents", "salesforce_connections", "test_projects",
+        "agents", "connections", "test_projects",
     ]
     for t in tables:
         cur.execute(f"DELETE FROM {t}")
@@ -392,7 +392,7 @@ def seed(cur):
     # ── Connections ──────────────────────────────────────────────────────────
     print("[seed] Inserting connections...")
     execute_values(cur, """
-        INSERT INTO salesforce_connections
+        INSERT INTO connections
             (id, name, connection_type, domain, consumer_key, consumer_secret, default_agent_id, config, created_at, updated_at)
         VALUES %s
         ON CONFLICT (id) DO NOTHING

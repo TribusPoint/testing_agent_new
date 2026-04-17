@@ -1,4 +1,4 @@
-import { BASE, req } from "./client";
+import { BASE, del, req } from "./client";
 import type { AuthResponse, UserInfo, MessageResponse, PasswordResetInfo } from "./types";
 
 function formatAuthError(r: Response, body: unknown, fallback: string): string {
@@ -26,14 +26,48 @@ async function parseBody(r: Response): Promise<unknown> {
   }
 }
 
+function networkErrorHint(): string {
+  if (!BASE) {
+    return (
+      "Start the API (e.g. uvicorn) on the host/port Next proxies to — default API_INTERNAL_URL is http://127.0.0.1:8080 " +
+      "(see client/next.config.ts). Or set NEXT_PUBLIC_API_URL in client/.env.local to the API base URL and restart pnpm dev. " +
+      "If login still hangs, ensure PostgreSQL is running and DATABASE_URL in server/.env is correct."
+    );
+  }
+  const origin = BASE.replace(/\/$/, "");
+  return (
+    `No HTTP response from ${BASE} in time. From the server folder, after pip install -r requirements.txt, run ` +
+    `python -m uvicorn main:app --reload --host 127.0.0.1 --port 8080. Then open ${origin}/health in the browser; ` +
+    `it should return JSON. If that URL never loads, another process may be using the port — use a different port ` +
+    `and set NEXT_PUBLIC_API_URL to match. If /health works but sign-in still times out, check PostgreSQL and DATABASE_URL.`
+  );
+}
+
+const AUTH_FETCH_TIMEOUT_MS = 25_000;
+
 async function authFetch<T>(url: string, init: RequestInit, fallbackMsg: string): Promise<T> {
-  const r = await fetch(url, init);
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), AUTH_FETCH_TIMEOUT_MS);
+  let r: Response;
+  try {
+    r = await fetch(url, { ...init, signal: ctrl.signal });
+  } catch (e) {
+    clearTimeout(timer);
+    if (e instanceof Error && e.name === "AbortError") {
+      throw new Error(
+        `Sign-in request timed out after ${AUTH_FETCH_TIMEOUT_MS / 1000}s. ${networkErrorHint()}`,
+      );
+    }
+    const msg = e instanceof Error ? e.message : "Network error";
+    throw new Error(`${msg}. ${networkErrorHint()}`);
+  }
+  clearTimeout(timer);
   const body = await parseBody(r);
   if (!r.ok) throw new Error(formatAuthError(r, body, fallbackMsg));
   return body as T;
 }
 
-// --- Admin login (seeded admin, username/password) ---
+// --- Legacy admin-only endpoint. Prefer `login("admin", password)` or `login("admin@admin.com", password)`. ---
 export const adminLogin = (username: string, password: string) =>
   authFetch<AuthResponse>(`${BASE}/api/auth/admin-login`, {
     method: "POST",
@@ -66,10 +100,14 @@ export const forgotPassword = (email: string) =>
   }, "Request failed");
 
 // --- Change own password (authenticated) ---
-export const changeMyPassword = (currentPassword: string, newPassword: string) =>
+export const changeMyPassword = (currentPassword: string, newPassword: string, secret?: string) =>
   req<MessageResponse>("/api/auth/change-password", {
     method: "POST",
-    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+    body: JSON.stringify({
+      current_password: currentPassword,
+      new_password: newPassword,
+      ...(secret != null && secret !== "" ? { secret } : {}),
+    }),
   });
 
 // --- Current user ---
@@ -90,59 +128,21 @@ export const adminCreateUser = (data: { email: string; password: string; name: s
     body: JSON.stringify(data),
   });
 
-export const changeUserPassword = (userId: string, password: string) =>
+export const changeUserPassword = (userId: string, password: string, secret: string) =>
   req<{ ok: boolean; message: string }>(`/api/auth/users/${userId}/password`, {
     method: "PATCH",
-    body: JSON.stringify({ password }),
+    body: JSON.stringify({ password, secret }),
   });
 
-export const deleteUser = (userId: string) => {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (typeof window !== "undefined") {
-    const token = localStorage.getItem("ta_jwt_token");
-    if (token) headers["Authorization"] = `Bearer ${token}`;
-    else {
-      const key = localStorage.getItem("ta_api_key");
-      if (key) headers["X-API-Key"] = key;
-    }
-  }
-  return fetch(`${BASE}/api/auth/users/${userId}`, {
-    method: "DELETE",
-    headers,
-  }).then(async (r) => {
-    if (!r.ok && r.status !== 204) {
-      const body = await r.json().catch(() => ({}));
-      throw new Error((body as { detail?: string }).detail ?? "Delete failed");
-    }
-  });
-};
+export const deleteUser = (userId: string) => del(`/api/auth/users/${userId}`);
 
 // --- Admin: password reset requests ---
 export const listPasswordResets = () => req<PasswordResetInfo[]>("/api/auth/password-resets");
 
-export const approvePasswordReset = (resetId: string, tempPassword: string) =>
+export const approvePasswordReset = (resetId: string, tempPassword: string, secret: string) =>
   req<MessageResponse>(`/api/auth/password-resets/${resetId}/approve`, {
     method: "POST",
-    body: JSON.stringify({ temp_password: tempPassword }),
+    body: JSON.stringify({ temp_password: tempPassword, secret }),
   });
 
-export const rejectPasswordReset = (resetId: string) => {
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-  if (typeof window !== "undefined") {
-    const token = localStorage.getItem("ta_jwt_token");
-    if (token) headers["Authorization"] = `Bearer ${token}`;
-    else {
-      const key = localStorage.getItem("ta_api_key");
-      if (key) headers["X-API-Key"] = key;
-    }
-  }
-  return fetch(`${BASE}/api/auth/password-resets/${resetId}`, {
-    method: "DELETE",
-    headers,
-  }).then(async (r) => {
-    if (!r.ok && r.status !== 204) {
-      const body = await r.json().catch(() => ({}));
-      throw new Error((body as { detail?: string }).detail ?? "Failed to reject");
-    }
-  });
-};
+export const rejectPasswordReset = (resetId: string) => del(`/api/auth/password-resets/${resetId}`);

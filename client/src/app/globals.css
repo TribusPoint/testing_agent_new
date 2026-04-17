@@ -32,3 +32,120 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* Platform console overview — entrance + row shine (used by /console) */
+@keyframes ta-console-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ta-console-rise {
+  opacity: 0;
+  animation: ta-console-rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation-delay: var(--ta-rise-delay, 0ms);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ta-console-rise {
+    opacity: 1;
+    transform: none;
+    animation: none;
+  }
+}
+
+/* Login / sign-in — panel entrance */
+@keyframes ta-login-fade {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ta-login-panel {
+  animation: ta-login-fade 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ta-login-panel {
+    animation: none;
+  }
+}
+
+@keyframes ta-login-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  20%,
+  60% {
+    transform: translateX(-4px);
+  }
+  40%,
+  80% {
+    transform: translateX(4px);
+  }
+}
+
+.ta-login-shake {
+  animation: ta-login-shake 0.45s ease-in-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ta-login-shake {
+    animation: none;
+  }
+}
+
+@keyframes ta-login-bg-drift {
+  0%,
+  100% {
+    transform: translate(0, 0) scale(1);
+  }
+  50% {
+    transform: translate(2%, -1%) scale(1.03);
+  }
+}
+
+.ta-login-bg-orb {
+  animation: ta-login-bg-drift 18s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ta-login-bg-orb {
+    animation: none;
+  }
+}
+
+/* Foundry console — detail pane micro-entrance on entity switch */
+@keyframes ta-foundry-detail {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ta-foundry-detail-enter {
+  animation: ta-foundry-detail 0.22s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ta-foundry-detail-enter {
+    animation: none;
+  }
+}
+
+

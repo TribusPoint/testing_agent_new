@@ -1,6 +1,8 @@
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
+
+from api.schemas.agents import AgentResponse
 
 from api.utils import normalize_salesforce_domain
 
@@ -92,3 +94,13 @@ class ConnectionTestResult(BaseModel):
     success: bool
     message: str
     agent_count: int = 0
+
+
+class ConnectionAgentsPayload(BaseModel):
+    """Returned when creating or refreshing a Salesforce connection (sync + discovery)."""
+
+    connection: ConnectionResponse
+    agents: list[AgentResponse] = Field(default_factory=list)
+    candidates: list[dict[str, Any]] = Field(default_factory=list)
+    message: str = ""
+    diagnostics: dict[str, Any] | None = None

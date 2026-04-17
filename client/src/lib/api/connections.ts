@@ -1,10 +1,26 @@
 import { req, del } from "./client";
 import type { Connection, ConnectionCreate, Agent, HttpConnectionConfig, HttpAgentConfig, BrowserAgentConfig } from "./types";
 
+export type ConnectionAgentsPayload = {
+  connection: Connection;
+  agents: Agent[];
+  candidates: { id: string; name: string; developer_name: string; source: string }[];
+  message: string;
+  diagnostics?: Record<string, unknown> | null;
+};
+
 export const listConnections = () => req<Connection[]>("/api/connections");
 
+export const getConnection = (id: string) => req<Connection>(`/api/connections/${id}`);
+
 export const createConnection = (b: ConnectionCreate) =>
-  req<Connection>("/api/connections", { method: "POST", body: JSON.stringify(b) });
+  req<ConnectionAgentsPayload>("/api/connections", { method: "POST", body: JSON.stringify(b) });
+
+export const bootstrapSalesforceConnection = (connectionId: string) =>
+  req<ConnectionAgentsPayload>(`/api/connections/${connectionId}/bootstrap-salesforce`, {
+    method: "POST",
+    body: "{}",
+  });
 
 export const updateConnection = (
   id: string,

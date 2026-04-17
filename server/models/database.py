@@ -15,7 +15,13 @@ def _missing_db_msg() -> str:
 if not (settings.effective_database_url or "").strip():
     raise RuntimeError(_missing_db_msg())
 
-engine = create_async_engine(settings.db_url_async, echo=False)
+_async_url = settings.db_url_async
+# asyncpg otherwise may hang a long time when Postgres is down or misconfigured.
+_engine_kw: dict = {"echo": False}
+if "asyncpg" in _async_url:
+    _engine_kw["connect_args"] = {"timeout": 12}
+
+engine = create_async_engine(_async_url, **_engine_kw)
 AsyncSessionLocal = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 

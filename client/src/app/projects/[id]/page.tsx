@@ -2,11 +2,15 @@
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
+import { useAuth } from "@/components/auth-provider";
 import * as api from "@/lib/api";
+import { InfoHint } from "@/components/ui/info-hint";
 import { INPUT_CLS } from "../ui-constants";
 
 function ProjectDetailView({ projectId }: { projectId: string }) {
   const router = useRouter();
+  const { user } = useAuth();
+  const repoHome = user?.role === "admin" ? "/console/project-repo" : "/dashboard";
   const [selected, setSelected] = useState<api.Project | null>(null);
   const [projectLoading, setProjectLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
@@ -69,7 +73,7 @@ function ProjectDetailView({ projectId }: { projectId: string }) {
     setDeletingProject(true);
     try {
       await api.deleteProject(selected.id);
-      router.replace("/projects");
+      router.replace(user?.role === "admin" ? "/console/project-repo" : "/dashboard");
     } catch (e: unknown) {
       alert(e instanceof Error ? e.message : "Delete failed");
     } finally {
@@ -123,8 +127,8 @@ function ProjectDetailView({ projectId }: { projectId: string }) {
     return (
       <div className="flex flex-1 min-h-0 flex-col items-center justify-center gap-3 bg-gray-50 dark:bg-gray-950 p-6">
         <p className="text-sm text-gray-600 dark:text-gray-400">Project not found.</p>
-        <Link href="/projects" className="text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:underline">
-          Back to projects
+        <Link href={repoHome} className="text-sm font-medium text-indigo-600 dark:text-indigo-400 hover:underline">
+          {user?.role === "admin" ? "Back to project repo" : "Back to dashboard"}
         </Link>
       </div>
     );
@@ -135,10 +139,10 @@ function ProjectDetailView({ projectId }: { projectId: string }) {
       <header className="shrink-0 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 px-4 py-3 flex items-center justify-between gap-3 min-w-0">
         <div className="flex items-center gap-3 min-w-0">
           <Link
-            href="/projects"
+            href={repoHome}
             className="text-xs text-gray-500 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 shrink-0 font-medium"
           >
-            ← Projects
+            {user?.role === "admin" ? "← Project repo" : "← Dashboard"}
           </Link>
           <span className="text-gray-300 dark:text-gray-600 select-none" aria-hidden>
             /
@@ -169,7 +173,12 @@ function ProjectDetailView({ projectId }: { projectId: string }) {
           {showEditProject && (
             <div className="rounded-xl border border-indigo-200 dark:border-indigo-900/50 bg-white dark:bg-gray-900 p-4 shadow-sm">
               <div className="flex items-center justify-between gap-2 mb-3">
-                <h2 className="text-sm font-semibold text-gray-900 dark:text-white">Edit project parameters</h2>
+                <div className="flex flex-wrap items-center gap-1.5 min-w-0">
+                  <h2 className="text-sm font-semibold text-gray-900 dark:text-white m-0">Edit project parameters</h2>
+                  <InfoHint label="Edit project parameters">
+                    Name, company, industry, websites, and competitors are used for generation.
+                  </InfoHint>
+                </div>
                 <button
                   type="button"
                   onClick={() => setShowEditProject(false)}
@@ -178,9 +187,6 @@ function ProjectDetailView({ projectId }: { projectId: string }) {
                   Close
                 </button>
               </div>
-              <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-3">
-                Name, company, industry, websites, and competitors are used for generation.
-              </p>
               <div className="flex flex-col gap-2 max-w-xl">
                 <input
                   placeholder="Project name *"
@@ -254,16 +260,17 @@ function ProjectDetailView({ projectId }: { projectId: string }) {
             ))}
           </div>
 
-          <p className="text-xs text-gray-500 dark:text-gray-400">
-            Manage personas, dimensions, profiles, and questions under <strong className="text-gray-600 dark:text-gray-300">Settings</strong>.
-          </p>
-
           {/* Project details */}
           <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-4">
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-1">Project details</h3>
-            <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-3">
-              To change the project name, websites, or company fields, use <strong>Edit project</strong> in the top bar.
-            </p>
+            <div className="flex flex-wrap items-center gap-1.5 mb-3">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white m-0">Project details</h3>
+              <InfoHint label="Project details">
+                Manage personas, dimensions, profiles, and questions from the{" "}
+                <strong className="text-gray-600 dark:text-gray-300">Console → Project repo</strong> (admins).
+                To change the project name,
+                websites, or company fields, use <strong>Edit project</strong> in the top bar.
+              </InfoHint>
+            </div>
             <dl className="grid grid-cols-2 gap-x-6 gap-y-2">
               {(
                 [

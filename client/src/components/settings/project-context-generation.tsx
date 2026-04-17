@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import * as api from "@/lib/api";
+import { InfoHint } from "@/components/ui/info-hint";
 import { INPUT_CLS, type GenStep } from "@/app/projects/ui-constants";
 
 export type GenerationSection = "personas" | "dimensions" | "profiles" | "questions";
@@ -229,8 +230,12 @@ export function ProjectContextGeneration({ projectId, section }: Props) {
   }
 
   const genAllBlock = (
-    <div className="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/30 p-4 mb-4">
-      <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-3">Use Gen All to run the full pipeline, or generate each step individually.</p>
+    <div className="relative mb-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50/50 dark:bg-gray-800/30 p-4 pr-10">
+      <div className="absolute right-3 top-3">
+        <InfoHint label="Generation pipeline">
+          Use Gen All to run the full pipeline, or generate each step individually.
+        </InfoHint>
+      </div>
       <div className="flex gap-3 flex-wrap items-center mb-3">
         <label className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400">
           Personas
@@ -454,12 +459,15 @@ export function ProjectContextGeneration({ projectId, section }: Props) {
     <div className="flex flex-col gap-4">
       {genAllBlock}
       <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg p-4">
-        <p className="text-[11px] text-gray-500 dark:text-gray-400 mb-3">
-          Questions use <strong>personas</strong>, <strong>dimensions</strong>, and <strong>profiles</strong> from this project. Pick connection and agent on the <strong>Runs</strong> page when executing.
-        </p>
-        <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
-          <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Questions</h3>
-          <div className="flex items-center gap-2">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 min-w-0">
+            <h3 className="text-sm font-semibold text-gray-900 dark:text-white m-0">Questions</h3>
+            <InfoHint label="Questions">
+              Questions use <strong>personas</strong>, <strong>dimensions</strong>, and <strong>profiles</strong> from this
+              project. Pick connection and agent on the <strong>Runs</strong> page when executing.
+            </InfoHint>
+          </div>
+          <div className="flex flex-wrap items-center justify-end gap-2 shrink-0">
             {questions.length > 0 && (
               <>
                 <button type="button" onClick={toggleAllQuestions} className="text-xs px-2 py-1 border border-gray-300 dark:border-gray-600 rounded hover:bg-gray-50 dark:hover:bg-gray-800">

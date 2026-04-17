@@ -13,7 +13,7 @@ Agent config shape (stored in agents.config):
   "extra_headers": {"X-Custom": "value"}           # merged with auth header
 }
 
-Connection config shape (stored in salesforce_connections.config):
+Connection config shape (stored in connections.config):
 {
   "auth_type":  "none" | "api_key" | "bearer" | "basic",
   "auth_header": "Authorization",                  # default

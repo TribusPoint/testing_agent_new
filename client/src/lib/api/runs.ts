@@ -1,4 +1,4 @@
-import { req, del, getStoredKey, BASE } from "./client";
+import { req, del, getStoredToken, BASE } from "./client";
 import type { Run, RunResult, RunReport, RunComparison } from "./types";
 
 export const createRun = (b: { project_id: string; agent_id: string; question_ids?: string[]; repo_question_ids?: string[] }) =>
@@ -16,12 +16,12 @@ export const getRunReport = (runId: string) =>
   req<RunReport>(`/api/runs/${runId}/report`);
 
 export const exportRunCsv = async (runId: string) => {
-  const key = getStoredKey();
+  const token = getStoredToken();
   const res = await fetch(`${BASE}/api/runs/${runId}/export`, {
-    headers: key ? { "X-API-Key": key } : {},
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
   });
   if (res.status === 401) {
-    if (typeof window !== "undefined") window.location.href = "/settings";
+    if (typeof window !== "undefined") window.location.href = "/login";
     throw new Error("Unauthorized");
   }
   if (!res.ok) {

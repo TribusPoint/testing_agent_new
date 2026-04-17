@@ -1,6 +1,6 @@
 from models.base import Base
 from models.tables import (
-    SalesforceConnection,
+    ServiceConnection,
     Agent,
     TestProject,
     ProjectAgent,

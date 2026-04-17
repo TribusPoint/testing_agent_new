@@ -8,8 +8,13 @@ const NO_SIDEBAR_PATHS = ["/login"];
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const hideSidebar = NO_SIDEBAR_PATHS.includes(pathname);
+  const isConsole = pathname.startsWith("/console");
 
   if (hideSidebar) {
+    return <>{children}</>;
+  }
+
+  if (isConsole) {
     return <>{children}</>;
   }
 

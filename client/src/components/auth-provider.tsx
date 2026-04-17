@@ -6,7 +6,6 @@ import type { StoredUser } from "@/lib/api";
 import {
   getStoredToken,
   getStoredUser,
-  getStoredKey,
   setStoredToken,
   setStoredUser,
   clearAllAuth,
@@ -42,11 +41,18 @@ function getInitialUser(): StoredUser | null {
   return getStoredToken() ? getStoredUser() : null;
 }
 
+function readStoredAuth(): { user: StoredUser | null; mustChangePassword: boolean } {
+  const u = getInitialUser();
+  if (!u) return { user: null, mustChangePassword: false };
+  return { user: u, mustChangePassword: Boolean(u.must_change_password) };
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const [user, setUser] = useState<StoredUser | null>(getInitialUser);
-  const [mustChangePassword, setMustChangePassword] = useState(false);
+  const initial = readStoredAuth();
+  const [user, setUser] = useState<StoredUser | null>(initial.user);
+  const [mustChangePassword, setMustChangePassword] = useState(initial.mustChangePassword);
 
   const isAuthenticated = !!user;
 
@@ -68,19 +74,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const clearMustChangePassword = useCallback(() => {
     setMustChangePassword(false);
+    setUser((prev) => {
+      if (!prev) return prev;
+      const { must_change_password: _m, ...rest } = prev;
+      const next = { ...rest } as StoredUser;
+      setStoredUser(next);
+      return next;
+    });
   }, []);
 
   useEffect(() => {
     if (!isAuthenticated && !PUBLIC_PATHS.includes(pathname) && pathname !== FORCE_PW_PATH) {
-      const hasApiKeySession = typeof window !== "undefined" && !!getStoredKey();
-      if (!hasApiKeySession) {
-        router.replace("/login");
-      }
+      router.replace("/login");
     }
-    if (isAuthenticated && mustChangePassword && pathname !== FORCE_PW_PATH && pathname !== "/login") {
-      router.replace(FORCE_PW_PATH);
+    if (isAuthenticated && mustChangePassword && pathname !== "/change-password" && pathname !== "/console/change-password" && pathname !== "/login") {
+      const dest = user?.role === "admin" ? "/console/change-password" : FORCE_PW_PATH;
+      router.replace(dest);
     }
-  }, [isAuthenticated, mustChangePassword, pathname, router]);
+  }, [isAuthenticated, mustChangePassword, pathname, router, user?.role]);
 
   const value = useMemo(
     () => ({ user, isAuthenticated, mustChangePassword, handleLogin, handleLogout, clearMustChangePassword }),

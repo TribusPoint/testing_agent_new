@@ -278,17 +278,6 @@ export interface PasswordResetInfo {
   created_at: string;
 }
 
-export interface ApiKeyInfo {
-  id: string;
-  name: string;
-  is_active: boolean;
-  created_at: string;
-}
-
-export interface ApiKeyCreated extends ApiKeyInfo {
-  plain_key: string;
-}
-
 // Dashboard
 export interface DashboardSummary {
   total_runs: number;

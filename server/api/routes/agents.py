@@ -3,12 +3,10 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from models.database import get_db
-from models.tables import SalesforceConnection, Agent
+from models.tables import ServiceConnection, Agent
 from api.schemas.agents import AgentResponse, AgentCreate, AgentUpdate, ChatRequest, ChatResponse, EndSessionRequest
 from api.services.salesforce import (
     get_token,
-    fetch_agents,
-    fetch_agent_metadata,
     create_session,
     send_message,
     end_session,
@@ -17,6 +15,7 @@ from api.services.salesforce import (
 from api.services.http_service import send_http_message, HttpServiceError
 from api.services.browser_service import send_browser_message_once, BrowserServiceError
 from api.services import agent_discovery_service as discovery
+from api.services.salesforce_agent_sync import sync_salesforce_agents
 from config import settings
 
 router = APIRouter(tags=["agents"])
@@ -29,7 +28,7 @@ router = APIRouter(tags=["agents"])
 @router.get("/api/connections/{connection_id}/describe/{sobject_name}")
 async def describe_sobject(connection_id: str, sobject_name: str, db: AsyncSession = Depends(get_db)):
     """Return all field names for a Salesforce sObject."""
-    conn = await db.get(SalesforceConnection, connection_id)
+    conn = await db.get(ServiceConnection, connection_id)
     if not conn:
         raise HTTPException(status_code=404, detail="Connection not found")
     try:
@@ -43,7 +42,7 @@ async def describe_sobject(connection_id: str, sobject_name: str, db: AsyncSessi
 @router.get("/api/connections/{connection_id}/discover-endpoints")
 async def discover_endpoints(connection_id: str, db: AsyncSession = Depends(get_db)):
     """Probe the Salesforce org to discover available APIs."""
-    conn = await db.get(SalesforceConnection, connection_id)
+    conn = await db.get(ServiceConnection, connection_id)
     if not conn:
         raise HTTPException(status_code=404, detail="Connection not found")
 
@@ -61,7 +60,7 @@ async def discover_endpoints(connection_id: str, db: AsyncSession = Depends(get_
 @router.post("/api/connections/{connection_id}/soql")
 async def run_soql(connection_id: str, body: dict, db: AsyncSession = Depends(get_db)):
     """Run a SOQL query against the org."""
-    conn = await db.get(SalesforceConnection, connection_id)
+    conn = await db.get(ServiceConnection, connection_id)
     if not conn:
         raise HTTPException(status_code=404, detail="Connection not found")
     query = (body.get("query") or "").strip()
@@ -78,7 +77,7 @@ async def run_soql(connection_id: str, body: dict, db: AsyncSession = Depends(ge
 @router.get("/api/connections/{connection_id}/agents/runtime-ids")
 async def discover_runtime_ids(connection_id: str, db: AsyncSession = Depends(get_db)):
     """Try every known strategy to discover AgentForce agent IDs."""
-    conn = await db.get(SalesforceConnection, connection_id)
+    conn = await db.get(ServiceConnection, connection_id)
     if not conn:
         raise HTTPException(status_code=404, detail="Connection not found")
     try:
@@ -99,7 +98,7 @@ async def add_agent_manually(
     connection_id: str, body: AgentCreate, db: AsyncSession = Depends(get_db)
 ):
     """Manually register an agent by providing its Salesforce ID directly."""
-    conn = await db.get(SalesforceConnection, connection_id)
+    conn = await db.get(ServiceConnection, connection_id)
     if not conn:
         raise HTTPException(status_code=404, detail="Connection not found")
 
@@ -147,61 +146,13 @@ async def list_agents(connection_id: str, db: AsyncSession = Depends(get_db)):
 @router.post("/api/connections/{connection_id}/agents/sync", response_model=list[AgentResponse])
 async def sync_agents(connection_id: str, db: AsyncSession = Depends(get_db)):
     """Fetch agents from Salesforce and upsert them into the database."""
-    conn = await db.get(SalesforceConnection, connection_id)
+    conn = await db.get(ServiceConnection, connection_id)
     if not conn:
         raise HTTPException(status_code=404, detail="Connection not found")
     try:
-        token = await get_token(conn.domain, conn.consumer_key, conn.consumer_secret)
-        sf_agents = await fetch_agents(conn.domain, token)
+        return await sync_salesforce_agents(db, connection_id, conn)
     except SalesforceError as e:
         raise HTTPException(status_code=502, detail=str(e))
-
-    if not sf_agents:
-        result = await db.execute(
-            select(Agent).where(Agent.connection_id == connection_id).order_by(Agent.name)
-        )
-        return result.scalars().all()
-
-    saved = []
-    for sf in sf_agents:
-        sf_id = sf["Id"]
-        meta = await fetch_agent_metadata(conn.domain, token, sf_id)
-
-        result = await db.execute(
-            select(Agent).where(Agent.connection_id == connection_id, Agent.salesforce_id == sf_id)
-        )
-        agent = result.scalar_one_or_none()
-
-        agent_type = (sf.get("BotType") or sf.get("_source") or "agentforce").lower()
-
-        if agent:
-            agent.name = sf["MasterLabel"]
-            agent.developer_name = sf["DeveloperName"]
-            agent.agent_type = agent_type
-            agent.planner_id = meta["planner_id"]
-            agent.planner_name = meta["planner_name"]
-            agent.topics = meta["topics"]
-            agent.actions = meta["actions"]
-        else:
-            agent = Agent(
-                connection_id=connection_id,
-                salesforce_id=sf_id,
-                name=sf["MasterLabel"],
-                developer_name=sf["DeveloperName"],
-                agent_type=agent_type,
-                planner_id=meta["planner_id"],
-                planner_name=meta["planner_name"],
-                topics=meta["topics"],
-                actions=meta["actions"],
-            )
-            db.add(agent)
-
-        saved.append(agent)
-
-    await db.commit()
-    for a in saved:
-        await db.refresh(a)
-    return saved
 
 
 @router.get("/api/agents/{agent_id}", response_model=AgentResponse)
@@ -259,7 +210,7 @@ async def manual_chat(agent_id: str, body: ManualChatRequest, db: AsyncSession =
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
-    conn = await db.get(SalesforceConnection, agent.connection_id)
+    conn = await db.get(ServiceConnection, agent.connection_id)
     if not conn:
         raise HTTPException(status_code=404, detail="Connection not found")
 
@@ -339,7 +290,7 @@ async def chat_with_agent(agent_id: str, body: ChatRequest, db: AsyncSession = D
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
-    conn = await db.get(SalesforceConnection, agent.connection_id)
+    conn = await db.get(ServiceConnection, agent.connection_id)
     if not conn:
         raise HTTPException(status_code=404, detail="Connection not found")
 
@@ -395,7 +346,7 @@ async def close_session(agent_id: str, body: EndSessionRequest, db: AsyncSession
     agent = await db.get(Agent, agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
-    conn = await db.get(SalesforceConnection, agent.connection_id)
+    conn = await db.get(ServiceConnection, agent.connection_id)
     if not conn:
         raise HTTPException(status_code=404, detail="Connection not found")
     if (conn.connection_type or "salesforce") != "salesforce":

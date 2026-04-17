@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { InfoHint } from "@/components/ui/info-hint";
 import type { Project, SiteAnalysis } from "@/lib/api";
 
 const TONE_RING: Record<string, string> = {
@@ -54,15 +55,20 @@ function SectionHeader({
   icon,
   title,
   compact,
+  hint,
 }: {
   icon: ReactNode;
   title: string;
   compact?: boolean;
+  hint?: ReactNode;
 }) {
   return (
-    <div className={`flex items-center gap-1.5 ${compact ? "mb-2" : "mb-4"}`}>
-      <span className="text-gray-500 dark:text-gray-400 shrink-0">{icon}</span>
-      <h3 className="text-[11px] font-bold tracking-widest text-gray-500 dark:text-gray-400 uppercase">{title}</h3>
+    <div className={`flex items-start gap-1.5 ${compact ? "mb-2" : "mb-4"}`}>
+      <span className="text-gray-500 dark:text-gray-400 shrink-0 pt-0.5">{icon}</span>
+      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5">
+        <h3 className="text-[11px] font-bold tracking-widest text-gray-500 dark:text-gray-400 uppercase m-0">{title}</h3>
+        {hint ? <InfoHint label={title}>{hint}</InfoHint> : null}
+      </div>
     </div>
   );
 }
@@ -92,10 +98,12 @@ export default function SiteAnalysisPanel({
       <div className="flex flex-col gap-6">
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
           <div>
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-white tracking-tight">{displayName}</h2>
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              Run an AI analysis on the site URL to build the overview (audience, services, keywords, user needs).
-            </p>
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <h2 className="text-2xl font-bold text-gray-900 dark:text-white tracking-tight m-0">{displayName}</h2>
+              <InfoHint label="Site analysis">
+                Run an AI analysis on the site URL to build the overview (audience, services, keywords, user needs).
+              </InfoHint>
+            </div>
           </div>
           <button
             type="button"
@@ -192,15 +200,15 @@ export default function SiteAnalysisPanel({
         <SectionHeader
           compact
           title="Target audience"
+          hint={
+            <>Numbers are list order only (1st segment, 2nd, …)—not counts of people or a score.</>
+          }
           icon={
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
             </svg>
           }
         />
-        <p className="text-[10px] text-gray-500 dark:text-gray-400 -mt-1 mb-2 max-w-2xl">
-          Numbers are list order only (1st segment, 2nd, …)—not counts of people or a score.
-        </p>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-1.5">
           {aud.map((item, idx) => (
             <div

@@ -4,7 +4,6 @@
  */
 
 export {
-  getStoredKey, setStoredKey, clearStoredKey,
   getStoredToken, setStoredToken, clearStoredToken,
   getStoredUser, setStoredUser, clearStoredUser,
   clearAllAuth,

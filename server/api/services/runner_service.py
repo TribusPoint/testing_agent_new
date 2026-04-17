@@ -3,7 +3,7 @@ import logging
 from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update as sa_update
-from models.tables import TestRun, TestRunResult, InitiatingQuestion, Agent, SalesforceConnection
+from models.tables import TestRun, TestRunResult, InitiatingQuestion, Agent, ServiceConnection
 from api.services.salesforce import get_token, create_session, send_message, end_session, SalesforceError
 from api.services.http_service import send_http_message, HttpServiceError
 from api.services.browser_service import BrowserSession, BrowserServiceError
@@ -82,7 +82,7 @@ async def execute_run(run_id: str, db: AsyncSession) -> None:
         await publish(run_id, {"type": "run_failed", "run_id": run_id, "error": msg})
         return
 
-    conn = await db.get(SalesforceConnection, agent.connection_id)
+    conn = await db.get(ServiceConnection, agent.connection_id)
     if not conn:
         msg = "No Salesforce/API connection found for this agent."
         await db.execute(

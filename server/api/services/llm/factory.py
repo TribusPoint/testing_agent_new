@@ -43,6 +43,9 @@ def log_startup_llm_env() -> None:
     if prov == "anthropic":
         n = len(_sanitize_secret_key(settings.ANTHROPIC_API_KEY))
         _log.info("LLM startup: LLM_PROVIDER=%s ANTHROPIC_API_KEY length=%s", prov, n)
+    elif prov == "gemini":
+        n = len(_sanitize_secret_key(settings.GOOGLE_API_KEY))
+        _log.info("LLM startup: LLM_PROVIDER=%s GOOGLE_API_KEY length=%s", prov, n)
     else:
         n = len(_sanitize_secret_key(settings.OPENAI_API_KEY))
         _log.info(
@@ -50,6 +53,27 @@ def log_startup_llm_env() -> None:
             prov,
             n,
         )
+
+
+# Default (generation, evaluation, utterance) when switching provider via PATCH /api/config
+PROVIDER_DEFAULT_MODELS: dict[str, tuple[str, str, str]] = {
+    "openai": ("gpt-4o", "gpt-4o", "gpt-4o-mini"),
+    "anthropic": ("claude-3-5-sonnet-20241022", "claude-3-5-sonnet-20241022", "claude-3-5-haiku-20241022"),
+    "gemini": ("gemini-2.0-flash", "gemini-2.0-flash", "gemini-2.0-flash"),
+}
+
+
+def provider_has_credentials(provider: str) -> bool:
+    """Whether the deployment has a usable API key for this provider (for UI + PATCH validation)."""
+    p = (provider or "").strip().lower()
+    if p == "openai":
+        okey = _sanitize_secret_key(settings.OPENAI_API_KEY)
+        return bool(okey) and not _looks_like_dummy_openai_key(okey)
+    if p == "anthropic":
+        return bool(_sanitize_secret_key(settings.ANTHROPIC_API_KEY))
+    if p == "gemini":
+        return bool(_sanitize_secret_key(settings.GOOGLE_API_KEY))
+    return False
 
 
 _TASK_MODELS = {
@@ -78,6 +102,17 @@ def get_provider(task: str = "generation") -> LLMProvider:
             )
         return AnthropicProvider(api_key=akey, model=model)
 
+    if provider == "gemini":
+        from .gemini_provider import GeminiProvider
+
+        gkey = _sanitize_secret_key(settings.GOOGLE_API_KEY)
+        if not gkey:
+            raise RuntimeError(
+                "LLM_PROVIDER is gemini but GOOGLE_API_KEY is empty. "
+                "Add a key from https://aistudio.google.com/apikey or set LLM_PROVIDER=openai."
+            )
+        return GeminiProvider(api_key=gkey, model=model)
+
     okey = _sanitize_secret_key(settings.OPENAI_API_KEY)
     if not okey:
         raise RuntimeError(
@@ -96,6 +131,7 @@ def llm_config() -> dict:
     """Return the current LLM configuration for display purposes."""
     okey = _sanitize_secret_key(settings.OPENAI_API_KEY)
     akey = _sanitize_secret_key(settings.ANTHROPIC_API_KEY)
+    gkey = _sanitize_secret_key(settings.GOOGLE_API_KEY)
     openai_ok = bool(okey) and not _looks_like_dummy_openai_key(okey)
     return {
         "provider": settings.LLM_PROVIDER,
@@ -104,4 +140,5 @@ def llm_config() -> dict:
         "utterance_model": settings.UTTERANCE_MODEL,
         "openai_key_set": openai_ok,
         "anthropic_key_set": bool(akey),
+        "gemini_key_set": bool(gkey),
     }

@@ -1,6 +1,23 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
 
+function mergePersisted<T>(initialValue: T, parsed: unknown): T {
+  if (
+    typeof initialValue === "object" &&
+    initialValue !== null &&
+    !Array.isArray(initialValue) &&
+    parsed !== null &&
+    typeof parsed === "object" &&
+    !Array.isArray(parsed)
+  ) {
+    return { ...(initialValue as Record<string, unknown>), ...(parsed as Record<string, unknown>) } as T;
+  }
+  if (typeof initialValue === "object" && initialValue !== null && !Array.isArray(initialValue)) {
+    return initialValue;
+  }
+  return parsed as T;
+}
+
 /**
  * A hook that persists state in sessionStorage so it survives page navigation.
  * State is automatically synced to sessionStorage on change.
@@ -14,7 +31,9 @@ export function usePersistedState<T>(key: string, initialValue: T): [T, (value: 
     if (typeof window === "undefined") return initialValue;
     try {
       const stored = sessionStorage.getItem(key);
-      return stored ? JSON.parse(stored) : initialValue;
+      if (!stored) return initialValue;
+      const parsed = JSON.parse(stored) as unknown;
+      return mergePersisted(initialValue, parsed);
     } catch {
       return initialValue;
     }

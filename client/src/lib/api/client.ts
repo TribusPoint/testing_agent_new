@@ -18,22 +18,10 @@ function apiBase(): string {
 
 export const BASE = apiBase();
 
-const KEY_STORAGE = "ta_api_key";
+/** Legacy session storage from removed API-key login — cleared on logout. */
+const LEGACY_API_KEY_STORAGE = "ta_api_key";
 const TOKEN_STORAGE = "ta_jwt_token";
 const USER_STORAGE = "ta_user";
-
-export function getStoredKey(): string {
-  if (typeof window === "undefined") return "";
-  return localStorage.getItem(KEY_STORAGE) ?? "";
-}
-
-export function setStoredKey(key: string) {
-  localStorage.setItem(KEY_STORAGE, key);
-}
-
-export function clearStoredKey() {
-  localStorage.removeItem(KEY_STORAGE);
-}
 
 export function getStoredToken(): string {
   if (typeof window === "undefined") return "";
@@ -53,6 +41,8 @@ export interface StoredUser {
   email: string;
   name: string;
   role: string;
+  /** True after login when the server requires a first password change (e.g. temp password / approval). */
+  must_change_password?: boolean;
 }
 
 export function getStoredUser(): StoredUser | null {
@@ -74,7 +64,9 @@ export function clearStoredUser() {
 }
 
 export function clearAllAuth() {
-  clearStoredKey();
+  if (typeof window !== "undefined") {
+    localStorage.removeItem(LEGACY_API_KEY_STORAGE);
+  }
   clearStoredToken();
   clearStoredUser();
 }
@@ -82,8 +74,6 @@ export function clearAllAuth() {
 function authHeaders(): Record<string, string> {
   const token = getStoredToken();
   if (token) return { Authorization: `Bearer ${token}` };
-  const key = getStoredKey();
-  if (key) return { "X-API-Key": key };
   return {};
 }
 
@@ -116,16 +106,23 @@ export async function req<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error("Unauthorized");
   }
   if (!res.ok) {
-    const body = await res.json().catch(() => ({ detail: res.statusText }));
-    const d = (body as { detail?: unknown }).detail;
+    const raw = await res.text();
+    let detail: unknown;
+    try {
+      detail = raw ? (JSON.parse(raw) as { detail?: unknown }).detail : undefined;
+    } catch {
+      throw new Error(raw?.slice(0, 400) || `${res.status} ${res.statusText}`);
+    }
     const msg =
-      typeof d === "string"
-        ? d
-        : Array.isArray(d)
-          ? d
-              .map((x) => (typeof x === "object" && x !== null && "msg" in x ? String((x as { msg: string }).msg) : JSON.stringify(x)))
+      typeof detail === "string"
+        ? detail
+        : Array.isArray(detail)
+          ? detail
+              .map((x) =>
+                typeof x === "object" && x !== null && "msg" in x ? String((x as { msg: string }).msg) : JSON.stringify(x)
+              )
               .join("; ")
-          : "Request failed";
+          : raw?.slice(0, 400) || "Request failed";
     throw new Error(msg || "Request failed");
   }
   return res.json() as T;
