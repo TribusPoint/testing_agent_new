@@ -17,6 +17,9 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 
 WORKDIR /app
 
+# Baked into Next rewrites at build time — must match `start.sh` (uvicorn on 8000).
+ENV API_INTERNAL_URL=http://127.0.0.1:8000
+
 # -- Python deps --
 COPY server/requirements.txt /app/server/requirements.txt
 RUN pip install --no-cache-dir -r /app/server/requirements.txt

@@ -29,15 +29,15 @@ async function parseBody(r: Response): Promise<unknown> {
 function networkErrorHint(): string {
   if (!BASE) {
     return (
-      "Start the API (e.g. uvicorn) on the host/port Next proxies to — default API_INTERNAL_URL is http://127.0.0.1:8080 " +
-      "(see client/next.config.ts). Or set NEXT_PUBLIC_API_URL in client/.env.local to the API base URL and restart pnpm dev. " +
+      "Start the API on the host/port Next proxies to — default API_INTERNAL_URL is http://127.0.0.1:8000 (Docker/start.sh); " +
+      "for uvicorn on 8080 set API_INTERNAL_URL in client/.env.local (see client/next.config.ts). Or set NEXT_PUBLIC_API_URL. " +
       "If login still hangs, ensure PostgreSQL is running and DATABASE_URL in server/.env is correct."
     );
   }
   const origin = BASE.replace(/\/$/, "");
   return (
     `No HTTP response from ${BASE} in time. From the server folder, after pip install -r requirements.txt, run ` +
-    `python -m uvicorn main:app --reload --host 127.0.0.1 --port 8080. Then open ${origin}/health in the browser; ` +
+    `python -m uvicorn main:app --reload --host 127.0.0.1 --port 8000 (or 8080 if that matches your API_INTERNAL_URL). Then open ${origin}/health; ` +
     `it should return JSON. If that URL never loads, another process may be using the port — use a different port ` +
     `and set NEXT_PUBLIC_API_URL to match. If /health works but sign-in still times out, check PostgreSQL and DATABASE_URL.`
   );

@@ -1,7 +1,10 @@
 import type { NextConfig } from "next";
 
-/** Must match the port you run uvicorn on (README uses 8080). Override with API_INTERNAL_URL. */
-const API_INTERNAL = process.env.API_INTERNAL_URL || "http://127.0.0.1:8080";
+/**
+ * Target for same-container API (Docker/Railway `start.sh` runs uvicorn on 8000).
+ * Local dev on port 8080: set `API_INTERNAL_URL=http://127.0.0.1:8080` in `client/.env.local`.
+ */
+const API_INTERNAL = process.env.API_INTERNAL_URL || "http://127.0.0.1:8000";
 
 const nextConfig: NextConfig = {
   output: "standalone",
