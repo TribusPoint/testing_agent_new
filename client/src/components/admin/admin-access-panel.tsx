@@ -5,12 +5,12 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/components/auth-provider";
 import * as api from "@/lib/api";
 import { InfoHint } from "@/components/ui/info-hint";
-import type { UserInfo, PasswordResetInfo } from "@/lib/api";
+import type { UserInfo, PasswordResetInfo, CompanyProfileEditRequestInfo } from "@/lib/api";
 
 const INPUT_CLS =
   "w-full text-sm px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-indigo-500";
 
-type Tab = "approvals" | "users";
+type Tab = "approvals" | "users" | "companyEdits";
 
 export function AdminAccessPanel() {
   const router = useRouter();
@@ -39,6 +39,20 @@ export function AdminAccessPanel() {
   const [newPassword, setNewPassword] = useState("");
   const [reauthSecret, setReauthSecret] = useState("");
   const [savingPw, setSavingPw] = useState(false);
+
+  const [companyEdits, setCompanyEdits] = useState<CompanyProfileEditRequestInfo[]>([]);
+  const [loadingCompanyEdits, setLoadingCompanyEdits] = useState(false);
+
+  const loadCompanyEdits = useCallback(async () => {
+    setLoadingCompanyEdits(true);
+    try {
+      setCompanyEdits(await api.listCompanyProfileEdits());
+    } catch {
+      setCompanyEdits([]);
+    } finally {
+      setLoadingCompanyEdits(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (!isAdmin) router.replace("/dashboard");
@@ -73,8 +87,29 @@ export function AdminAccessPanel() {
     if (isAdmin) {
       loadApprovals();
       loadUsers();
+      loadCompanyEdits();
     }
-  }, [isAdmin, loadApprovals, loadUsers]);
+  }, [isAdmin, loadApprovals, loadUsers, loadCompanyEdits]);
+
+  async function handleApproveCompanyEdit(id: string) {
+    if (!confirm("Approve this company profile update?")) return;
+    try {
+      await api.approveCompanyProfileEdit(id);
+      await loadCompanyEdits();
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Failed");
+    }
+  }
+
+  async function handleRejectCompanyEdit(id: string) {
+    if (!confirm("Decline this update? The member keeps their current profile.")) return;
+    try {
+      await api.rejectCompanyProfileEdit(id);
+      await loadCompanyEdits();
+    } catch (e: unknown) {
+      alert(e instanceof Error ? e.message : "Failed");
+    }
+  }
 
   async function handleActivateUser(u: UserInfo) {
     try {
@@ -225,7 +260,11 @@ export function AdminAccessPanel() {
               [
                 {
                   id: "approvals" as const,
-                  label: `Pending approvals${pendingCount > 0 ? ` (${pendingCount})` : ""}`,
+                  label: `Pending approvals${pendingUsers.length + resets.length > 0 ? ` (${pendingUsers.length + resets.length})` : ""}`,
+                },
+                {
+                  id: "companyEdits" as const,
+                  label: `Company profile edits${companyEdits.length > 0 ? ` (${companyEdits.length})` : ""}`,
                 },
                 { id: "users" as const, label: "User accounts" },
               ] as const
@@ -382,8 +421,80 @@ export function AdminAccessPanel() {
                 </div>
               )}
 
-              {pendingCount === 0 && !loadingApprovals && (
+              {pendingUsers.length === 0 && resets.length === 0 && !loadingApprovals && (
                 <p className="text-xs text-gray-400 text-center py-8">No pending approvals.</p>
+              )}
+            </div>
+          )}
+
+          {tab === "companyEdits" && (
+            <div className="flex flex-col gap-4">
+              <div className="flex items-center gap-3">
+                <p className="text-xs text-gray-400">
+                  {loadingCompanyEdits ? "Loading…" : `${companyEdits.length} pending`}
+                </p>
+                <button
+                  type="button"
+                  onClick={loadCompanyEdits}
+                  disabled={loadingCompanyEdits}
+                  className="text-xs text-indigo-600 dark:text-indigo-400 hover:underline disabled:opacity-50"
+                >
+                  Refresh
+                </button>
+              </div>
+              {companyEdits.length > 0 ? (
+                <div className="flex flex-col gap-2">
+                  {companyEdits.map((r) => (
+                    <div
+                      key={r.id}
+                      className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-3"
+                    >
+                      <p className="text-sm font-medium text-gray-900 dark:text-white">
+                        {r.user_name}{" "}
+                        <span className="font-normal text-gray-500 dark:text-gray-400">({r.user_email})</span>
+                      </p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        Requested {new Date(r.created_at).toLocaleString()}
+                      </p>
+                      <dl className="mt-2 grid gap-1 text-sm">
+                        <div>
+                          <dt className="text-[10px] uppercase text-gray-400">Company</dt>
+                          <dd className="text-gray-800 dark:text-gray-200">{r.proposed_company_name}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-[10px] uppercase text-gray-400">URL</dt>
+                          <dd className="font-mono text-xs text-gray-800 dark:text-gray-200 break-all">
+                            {r.proposed_company_url}
+                          </dd>
+                        </div>
+                        <div>
+                          <dt className="text-[10px] uppercase text-gray-400">Industry</dt>
+                          <dd className="capitalize text-gray-800 dark:text-gray-200">{r.proposed_industry}</dd>
+                        </div>
+                      </dl>
+                      <div className="mt-3 flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => void handleApproveCompanyEdit(r.id)}
+                          className="text-xs bg-green-600 text-white px-3 py-1.5 rounded-lg hover:bg-green-700 font-medium"
+                        >
+                          Approve
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleRejectCompanyEdit(r.id)}
+                          className="text-xs text-red-600 border border-red-200 dark:border-red-900 px-3 py-1.5 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/20"
+                        >
+                          Decline
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                !loadingCompanyEdits && (
+                  <p className="text-xs text-gray-400 text-center py-8">No pending company profile updates.</p>
+                )
               )}
             </div>
           )}

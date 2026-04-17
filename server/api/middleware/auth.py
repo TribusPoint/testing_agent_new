@@ -47,3 +47,19 @@ async def verify_api_key(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Missing or invalid authentication. Provide Authorization: Bearer <JWT> or X-API-Key with the master key.",
     )
+
+
+async def get_current_user_id(
+    bearer: HTTPAuthorizationCredentials | None = Security(_bearer_scheme),
+) -> str:
+    """JWT only — returns active user id (for member-scoped routes)."""
+    if not bearer or not bearer.credentials:
+        raise HTTPException(status_code=401, detail="Bearer token required")
+    user_id = await _decode_jwt_token(bearer.credentials)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    async with AsyncSessionLocal() as db:
+        user = await db.get(User, user_id)
+        if not user or not user.is_active:
+            raise HTTPException(status_code=401, detail="Invalid or inactive user")
+        return user.id

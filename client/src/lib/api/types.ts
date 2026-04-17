@@ -257,6 +257,28 @@ export interface UserInfo {
   is_active: boolean;
   must_change_password?: boolean;
   created_at: string;
+  needs_company_onboarding?: boolean;
+  pending_company_edit?: boolean;
+}
+
+export interface MemberCompanyProfile {
+  company_name: string;
+  company_url: string;
+  industry: string;
+  onboarding_completed_at: string | null;
+  site_analysis?: SiteAnalysis | null;
+  site_analyzed_at?: string | null;
+}
+
+export interface CompanyProfileEditRequestInfo {
+  id: string;
+  user_id: string;
+  user_email: string;
+  user_name: string;
+  proposed_company_name: string;
+  proposed_company_url: string;
+  proposed_industry: string;
+  created_at: string;
 }
 
 export interface AuthResponse {

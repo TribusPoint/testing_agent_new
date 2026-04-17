@@ -43,6 +43,8 @@ export interface StoredUser {
   role: string;
   /** True after login when the server requires a first password change (e.g. temp password / approval). */
   must_change_password?: boolean;
+  needs_company_onboarding?: boolean;
+  pending_company_edit?: boolean;
 }
 
 export function getStoredUser(): StoredUser | null {
@@ -112,6 +114,9 @@ export async function req<T>(path: string, init?: RequestInit): Promise<T> {
       detail = raw ? (JSON.parse(raw) as { detail?: unknown }).detail : undefined;
     } catch {
       throw new Error(raw?.slice(0, 400) || `${res.status} ${res.statusText}`);
+    }
+    if (detail && typeof detail === "object" && !Array.isArray(detail) && "message" in detail) {
+      throw new Error(String((detail as { message: string }).message));
     }
     const msg =
       typeof detail === "string"

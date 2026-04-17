@@ -78,6 +78,10 @@ export default function SidebarNav() {
   const [collapsed, setCollapsed] = useState(getInitialCollapsed);
   const { user } = useAuth();
   const isAdminJwt = user?.role === "admin";
+  const memberGate =
+    user?.role === "member" &&
+    Boolean(user.needs_company_onboarding || user.pending_company_edit);
+  const navLinks = memberGate ? LINKS.filter((l) => l.href === "/dashboard") : LINKS;
 
   useEffect(() => {
     try {
@@ -144,8 +148,8 @@ export default function SidebarNav() {
       </div>
 
       <nav className="flex-1 overflow-y-auto overflow-x-hidden p-2 flex flex-col gap-0.5" aria-label="Main navigation">
-        {LINKS.map(({ href, label, Icon }) => {
-          const active = pathname === href || (href !== "/dashboard" && pathname.startsWith(href));
+        {navLinks.map(({ href, label, Icon }) => {
+          const active = pathname === href || (href !== "/dashboard" && pathname.startsWith(`${href}/`));
           return (
             <Link
               key={href}

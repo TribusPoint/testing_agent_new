@@ -9,6 +9,40 @@ def new_uuid():
     return str(uuid.uuid4())
 
 
+class MemberCompanyProfile(Base):
+    """Per-member company profile (onboarding + My Company overview)."""
+
+    __tablename__ = "member_company_profiles"
+
+    user_id: Mapped[str] = mapped_column(
+        UUID(as_uuid=False), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    company_name: Mapped[str] = mapped_column(Text, nullable=False)
+    company_url: Mapped[str] = mapped_column(Text, nullable=False)
+    industry: Mapped[str] = mapped_column(Text, nullable=False)
+    onboarding_completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    site_analysis: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    site_analyzed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class CompanyProfileEditRequest(Base):
+    """Member-requested company profile change; requires admin approval."""
+
+    __tablename__ = "company_profile_edit_requests"
+
+    id: Mapped[str] = mapped_column(UUID(as_uuid=False), primary_key=True, default=new_uuid)
+    user_id: Mapped[str] = mapped_column(UUID(as_uuid=False), ForeignKey("users.id", ondelete="CASCADE"))
+    proposed_company_name: Mapped[str] = mapped_column(Text, nullable=False)
+    proposed_company_url: Mapped[str] = mapped_column(Text, nullable=False)
+    proposed_industry: Mapped[str] = mapped_column(Text, nullable=False)
+    status: Mapped[str] = mapped_column(Text, nullable=False, default="pending")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class User(Base):
     __tablename__ = "users"
 

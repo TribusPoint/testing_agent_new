@@ -23,6 +23,7 @@ from api.routes.reports import router as reports_router
 from api.routes.dashboard import router as dashboard_router
 from api.routes.browser import router as browser_router
 from api.routes.question_repo import router as question_repo_router
+from api.routes.member_company import router as member_company_router
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +92,7 @@ app.include_router(reports_router, dependencies=_auth)
 app.include_router(dashboard_router, dependencies=_auth)
 app.include_router(browser_router, dependencies=_auth)
 app.include_router(question_repo_router, dependencies=_auth)
+app.include_router(member_company_router, dependencies=_auth)
 
 
 @app.get("/ping")

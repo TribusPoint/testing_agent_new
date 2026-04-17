@@ -1,3 +1,4 @@
+import logging
 import secrets
 from datetime import datetime, timedelta, timezone
 
@@ -10,7 +11,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 
 from models.database import get_db, AsyncSessionLocal
-from models.tables import User, PasswordResetRequest
+from models.tables import (
+    User,
+    PasswordResetRequest,
+    MemberCompanyProfile,
+    CompanyProfileEditRequest,
+)
 from config import settings
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -132,6 +138,8 @@ class UserResponse(BaseModel):
     is_active: bool
     must_change_password: bool = False
     created_at: str
+    needs_company_onboarding: bool = False
+    pending_company_edit: bool = False
 
 
 class MessageResponse(BaseModel):
@@ -184,6 +192,17 @@ class PasswordResetResponse(BaseModel):
     created_at: str
 
 
+class CompanyProfileEditRequestOut(BaseModel):
+    id: str
+    user_id: str
+    user_email: str
+    user_name: str
+    proposed_company_name: str
+    proposed_company_url: str
+    proposed_industry: str
+    created_at: str
+
+
 # ---------------------------------------------------------------------------
 # Legacy admin login (same as POST /login with email=admin + password).
 # Prefer unified /login with identifier "admin" or admin@admin.com.
@@ -202,7 +221,7 @@ async def admin_login(body: AdminLoginRequest, db: AsyncSession = Depends(get_db
         raise HTTPException(status_code=403, detail="Account deactivated")
 
     token = _create_token(user.id, user.role)
-    return TokenResponse(access_token=token, user=_user_response(user))
+    return TokenResponse(access_token=token, user=await _user_response_with_flags(db, user))
 
 
 # ---------------------------------------------------------------------------
@@ -247,7 +266,7 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
         raise HTTPException(status_code=403, detail="Your account is pending admin approval. Please wait for activation.")
 
     token = _create_token(user.id, user.role)
-    return TokenResponse(access_token=token, user=_user_response(user))
+    return TokenResponse(access_token=token, user=await _user_response_with_flags(db, user))
 
 
 # ---------------------------------------------------------------------------
@@ -255,8 +274,11 @@ async def login(body: LoginRequest, db: AsyncSession = Depends(get_db)):
 # ---------------------------------------------------------------------------
 
 @router.get("/me", response_model=UserResponse)
-async def get_me(user: User = Depends(_get_current_user)):
-    return _user_response(user)
+async def get_me(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(_get_current_user),
+):
+    return await _user_response_with_flags(db, user)
 
 
 # ---------------------------------------------------------------------------
@@ -380,13 +402,99 @@ async def reject_password_reset(
 
 
 # ---------------------------------------------------------------------------
+# Company profile edit approvals (admin only)
+# ---------------------------------------------------------------------------
+
+
+@router.get("/company-profile-edits", response_model=list[CompanyProfileEditRequestOut])
+async def list_company_profile_edits(
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(_require_admin),
+):
+    result = await db.execute(
+        select(CompanyProfileEditRequest)
+        .where(CompanyProfileEditRequest.status == "pending")
+        .order_by(CompanyProfileEditRequest.created_at)
+    )
+    rows = result.scalars().all()
+    out: list[CompanyProfileEditRequestOut] = []
+    for r in rows:
+        u = await db.get(User, r.user_id)
+        out.append(
+            CompanyProfileEditRequestOut(
+                id=r.id,
+                user_id=r.user_id,
+                user_email=u.email if u else "",
+                user_name=u.name if u else "",
+                proposed_company_name=r.proposed_company_name,
+                proposed_company_url=r.proposed_company_url,
+                proposed_industry=r.proposed_industry,
+                created_at=r.created_at.isoformat(),
+            )
+        )
+    return out
+
+
+@router.post("/company-profile-edits/{req_id}/approve", response_model=MessageResponse)
+async def approve_company_profile_edit(
+    req_id: str,
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(_require_admin),
+):
+    req = await db.get(CompanyProfileEditRequest, req_id)
+    if not req or req.status != "pending":
+        raise HTTPException(status_code=404, detail="Request not found")
+    profile = await db.get(MemberCompanyProfile, req.user_id)
+    if not profile:
+        raise HTTPException(status_code=400, detail="Member has no company profile")
+
+    profile.company_name = req.proposed_company_name
+    profile.company_url = req.proposed_company_url
+    profile.industry = req.proposed_industry
+
+    try:
+        analysis = await run_site_analysis_for_project(
+            url=req.proposed_company_url,
+            company_name=req.proposed_company_name,
+            industry=req.proposed_industry,
+            project_name=req.proposed_company_name,
+        )
+        profile.site_analysis = analysis
+        profile.site_analyzed_at = datetime.now(timezone.utc)
+    except Exception as e:
+        logger.warning("Site analysis on approve failed: %s", e)
+
+    req.status = "approved"
+    req.reviewed_at = datetime.now(timezone.utc)
+    await db.commit()
+    return MessageResponse(message="Company profile update approved.")
+
+
+@router.post("/company-profile-edits/{req_id}/reject", response_model=MessageResponse)
+async def reject_company_profile_edit(
+    req_id: str,
+    db: AsyncSession = Depends(get_db),
+    _: None = Depends(_require_admin),
+):
+    req = await db.get(CompanyProfileEditRequest, req_id)
+    if not req or req.status != "pending":
+        raise HTTPException(status_code=404, detail="Request not found")
+    req.status = "rejected"
+    req.reviewed_at = datetime.now(timezone.utc)
+    await db.commit()
+    return MessageResponse(
+        message="Update declined. The member keeps their previous company profile.",
+    )
+
+
+# ---------------------------------------------------------------------------
 # User Management (admin only)
 # ---------------------------------------------------------------------------
 
 @router.get("/users", response_model=list[UserResponse])
 async def list_users(db: AsyncSession = Depends(get_db), _: None = Depends(_require_admin)):
     result = await db.execute(select(User).order_by(User.created_at))
-    return [_user_response(u) for u in result.scalars().all()]
+    return [_user_response_basic(u) for u in result.scalars().all()]
 
 
 @router.patch("/users/{user_id}", response_model=UserResponse)
@@ -411,7 +519,7 @@ async def update_user(
 
     await db.commit()
     await db.refresh(user)
-    return _user_response(user)
+    return await _user_response_with_flags(db, user)
 
 
 @router.post("/users", response_model=UserResponse, status_code=201)
@@ -435,7 +543,7 @@ async def admin_create_user(
     db.add(user)
     await db.commit()
     await db.refresh(user)
-    return _user_response(user)
+    return await _user_response_with_flags(db, user)
 
 
 @router.patch("/users/{user_id}/password", status_code=200)

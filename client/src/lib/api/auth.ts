@@ -1,5 +1,11 @@
 import { BASE, del, req } from "./client";
-import type { AuthResponse, UserInfo, MessageResponse, PasswordResetInfo } from "./types";
+import type {
+  AuthResponse,
+  UserInfo,
+  MessageResponse,
+  PasswordResetInfo,
+  CompanyProfileEditRequestInfo,
+} from "./types";
 
 function formatAuthError(r: Response, body: unknown, fallback: string): string {
   if (r.status === 404) {
@@ -146,3 +152,13 @@ export const approvePasswordReset = (resetId: string, tempPassword: string, secr
   });
 
 export const rejectPasswordReset = (resetId: string) => del(`/api/auth/password-resets/${resetId}`);
+
+// --- Admin: company profile edit requests ---
+export const listCompanyProfileEdits = () =>
+  req<CompanyProfileEditRequestInfo[]>("/api/auth/company-profile-edits");
+
+export const approveCompanyProfileEdit = (reqId: string) =>
+  req<MessageResponse>(`/api/auth/company-profile-edits/${reqId}/approve`, { method: "POST" });
+
+export const rejectCompanyProfileEdit = (reqId: string) =>
+  req<MessageResponse>(`/api/auth/company-profile-edits/${reqId}/reject`, { method: "POST" });

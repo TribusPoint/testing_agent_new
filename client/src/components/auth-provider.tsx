@@ -3,6 +3,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import type { StoredUser } from "@/lib/api";
+import * as api from "@/lib/api";
 import {
   getStoredToken,
   getStoredUser,
@@ -18,6 +19,7 @@ interface AuthContextValue {
   handleLogin: (token: string, user: StoredUser) => void;
   handleLogout: () => void;
   clearMustChangePassword: () => void;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue>({
@@ -27,6 +29,7 @@ const AuthContext = createContext<AuthContextValue>({
   handleLogin: () => {},
   handleLogout: () => {},
   clearMustChangePassword: () => {},
+  refreshUser: async () => {},
 });
 
 export function useAuth() {
@@ -72,6 +75,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     router.push("/login");
   }, [router]);
 
+  const refreshUser = useCallback(async () => {
+    const token = getStoredToken();
+    if (!token) return;
+    try {
+      const me = await api.getMe();
+      const next: StoredUser = {
+        id: me.id,
+        email: me.email,
+        name: me.name,
+        role: me.role,
+        must_change_password: me.must_change_password,
+        needs_company_onboarding: me.needs_company_onboarding,
+        pending_company_edit: me.pending_company_edit,
+      };
+      setStoredUser(next);
+      setUser(next);
+      if (me.must_change_password) {
+        setMustChangePassword(true);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
   const clearMustChangePassword = useCallback(() => {
     setMustChangePassword(false);
     setUser((prev) => {
@@ -93,9 +120,33 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, [isAuthenticated, mustChangePassword, pathname, router, user?.role]);
 
+  useEffect(() => {
+    if (getStoredToken()) {
+      void refreshUser();
+    }
+  }, [refreshUser]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !user || mustChangePassword) return;
+    if (user.role !== "member") return;
+    const gate = Boolean(user.needs_company_onboarding || user.pending_company_edit);
+    if (!gate) return;
+    if (pathname !== "/dashboard" && pathname !== "/login") {
+      router.replace("/dashboard");
+    }
+  }, [isAuthenticated, user, mustChangePassword, pathname, router]);
+
   const value = useMemo(
-    () => ({ user, isAuthenticated, mustChangePassword, handleLogin, handleLogout, clearMustChangePassword }),
-    [user, isAuthenticated, mustChangePassword, handleLogin, handleLogout, clearMustChangePassword],
+    () => ({
+      user,
+      isAuthenticated,
+      mustChangePassword,
+      handleLogin,
+      handleLogout,
+      clearMustChangePassword,
+      refreshUser,
+    }),
+    [user, isAuthenticated, mustChangePassword, handleLogin, handleLogout, clearMustChangePassword, refreshUser],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

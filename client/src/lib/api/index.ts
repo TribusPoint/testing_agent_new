@@ -18,3 +18,4 @@ export * from "./settings";
 export * from "./browser";
 export * from "./dashboard";
 export * from "./repo";
+export * from "./member-company";

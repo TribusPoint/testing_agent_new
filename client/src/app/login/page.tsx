@@ -138,6 +138,8 @@ export default function LoginPage() {
       name: user.name,
       role: user.role,
       must_change_password: user.must_change_password,
+      needs_company_onboarding: user.needs_company_onboarding,
+      pending_company_edit: user.pending_company_edit,
     } as api.StoredUser);
     if (user.must_change_password) {
       router.replace(user.role === "admin" ? "/console/change-password" : "/change-password");

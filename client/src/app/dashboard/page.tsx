@@ -1,9 +1,158 @@
+"use client";
+
+import { useSearchParams } from "next/navigation";
+import { useEffect, useState, type ReactNode } from "react";
 import { StatusPing } from "@/components/ui/status-ping";
+import { CompanySetupForm } from "@/components/dashboard/company-setup-form";
+import { useAuth } from "@/components/auth-provider";
+import * as api from "@/lib/api";
+
+function PendingEditCard() {
+  const { refreshUser } = useAuth();
+  return (
+    <div className="w-full max-w-md">
+      <div className="relative rounded-2xl border border-amber-200/80 bg-amber-50/90 p-8 shadow-lg dark:border-amber-500/30 dark:bg-amber-950/40">
+        <div className="flex flex-col items-center text-center gap-3">
+          <span className="inline-flex items-center gap-2 rounded-full border border-amber-300 bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-900 dark:bg-gray-900/60 dark:text-amber-200">
+            <StatusPing tone="amber" className="relative flex h-2 w-2 shrink-0 items-center justify-center" size="h-2 w-2" />
+            Awaiting approval
+          </span>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Company update pending</h2>
+          <p className="text-sm text-gray-600 dark:text-gray-400">
+            An administrator is reviewing your company profile changes. You’ll keep your current profile until they
+            approve or decline the update.
+          </p>
+          <button
+            type="button"
+            onClick={() => void refreshUser()}
+            className="mt-2 text-sm font-medium text-indigo-600 hover:underline dark:text-indigo-400"
+          >
+            Refresh status
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DashboardWipCard() {
+  return (
+    <div className="w-full max-w-md">
+      <div className="relative rounded-2xl border border-white/60 bg-white/70 p-8 shadow-xl shadow-indigo-500/10 ring-1 ring-indigo-500/5 backdrop-blur-xl dark:border-white/10 dark:bg-gray-900/75 dark:shadow-indigo-950/40 dark:ring-white/5">
+        <div className="absolute left-6 right-6 top-0 h-px bg-gradient-to-r from-transparent via-indigo-400/50 to-transparent dark:via-indigo-400/30" />
+
+        <div className="flex flex-col items-center text-center">
+          <div className="relative mb-8">
+            <div className="absolute inset-0 animate-pulse rounded-2xl bg-gradient-to-tr from-indigo-500/20 to-violet-500/20 blur-xl dark:from-indigo-400/15 dark:to-violet-400/15" />
+            <div className="relative flex h-20 w-20 items-center justify-center rounded-2xl border border-indigo-200/80 bg-gradient-to-br from-indigo-500 to-violet-600 shadow-lg shadow-indigo-500/25 dark:border-indigo-400/30 dark:shadow-indigo-900/50">
+              <svg
+                className="h-10 w-10 text-white drop-shadow-sm"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={1.5}
+                aria-hidden
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5M9 11.25v1.5M12 9v3.75m3-6v6"
+                />
+              </svg>
+            </div>
+            <div className="absolute -right-1 -top-1 flex gap-0.5 opacity-60">
+              <span className="h-3 w-1 rounded-full bg-indigo-300 dark:bg-indigo-500" />
+              <span className="h-5 w-1 rounded-full bg-violet-300 dark:bg-violet-500" />
+              <span className="h-4 w-1 rounded-full bg-indigo-200 dark:bg-indigo-400" />
+            </div>
+          </div>
+
+          <span className="mb-3 inline-flex items-center gap-2 rounded-full border border-amber-200/90 bg-amber-50/90 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-800 dark:border-amber-500/35 dark:bg-amber-950/50 dark:text-amber-200">
+            <StatusPing tone="amber" className="relative flex h-2 w-2 shrink-0 items-center justify-center" size="h-2 w-2" />
+            Work in progress
+          </span>
+
+          <h1 className="bg-gradient-to-br from-gray-900 via-gray-800 to-gray-600 bg-clip-text text-2xl font-bold tracking-tight text-transparent dark:from-white dark:via-gray-100 dark:to-gray-400 sm:text-3xl">
+            Dashboard
+          </h1>
+
+          <p className="mt-4 text-sm leading-relaxed text-gray-600 dark:text-gray-400">
+            We&apos;re crafting analytics here—run summaries, trends, and quality insights. Check back soon for a full
+            picture of how your agents perform across tests.
+          </p>
+
+          <div className="mt-8 flex w-full max-w-xs flex-col gap-2">
+            <div className="flex items-center gap-3 text-left">
+              <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-gray-200/90 dark:bg-gray-700/80">
+                <span className="block h-full w-[38%] rounded-full bg-gradient-to-r from-indigo-500 to-violet-500" />
+              </span>
+              <span className="text-[10px] font-medium tabular-nums text-gray-400 dark:text-gray-500">38%</span>
+            </div>
+            <p className="text-center text-[11px] text-gray-400 dark:text-gray-500">
+              Coming soon · metrics &amp; visualizations in development
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export default function DashboardPage() {
+  const { user } = useAuth();
+  const searchParams = useSearchParams();
+  const editCompany = searchParams.get("editCompany") === "1";
+
+  const [editProfile, setEditProfile] = useState<Awaited<ReturnType<typeof api.getMemberCompanyProfile>>>(null);
+
+  useEffect(() => {
+    if (!editCompany || user?.role !== "member") return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const p = await api.getMemberCompanyProfile();
+        if (!cancelled) setEditProfile(p);
+      } catch {
+        if (!cancelled) setEditProfile(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [editCompany, user?.role]);
+
+  const isAdmin = user?.role === "admin";
+  const memberGate =
+    user?.role === "member" && Boolean(user.needs_company_onboarding || user.pending_company_edit);
+  const needsSetup = user?.role === "member" && user.needs_company_onboarding;
+  const pendingEdit = user?.role === "member" && user.pending_company_edit;
+  const showEditForm = user?.role === "member" && editCompany && editProfile && !needsSetup && !pendingEdit;
+
+  let main: ReactNode;
+  if (isAdmin) {
+    main = <DashboardWipCard />;
+  } else if (pendingEdit) {
+    main = <PendingEditCard />;
+  } else if (showEditForm && editProfile) {
+    main = (
+      <CompanySetupForm
+        mode="edit"
+        initialCompanyName={editProfile.company_name}
+        initialUrl={editProfile.company_url}
+        initialIndustry={editProfile.industry}
+      />
+    );
+  } else if (needsSetup) {
+    main = <CompanySetupForm mode="onboarding" />;
+  } else {
+    main = <DashboardWipCard />;
+  }
+
+  const tabLabel =
+    needsSetup || showEditForm ? "Company setup" : pendingEdit ? "Status" : "Dashboard";
+
   return (
     <div className="relative flex-1 min-h-0 h-full overflow-hidden">
-      {/* Background layers */}
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 bg-gradient-to-br from-indigo-50 via-white to-violet-100/80 dark:from-gray-950 dark:via-indigo-950/30 dark:to-violet-950/40"
@@ -25,70 +174,16 @@ export default function DashboardPage() {
         }}
       />
 
-      <div className="relative flex h-full min-h-0 items-center justify-center p-6 sm:p-10">
-        <div className="w-full max-w-md">
-          <div className="relative rounded-2xl border border-white/60 bg-white/70 p-8 shadow-xl shadow-indigo-500/10 ring-1 ring-indigo-500/5 backdrop-blur-xl dark:border-white/10 dark:bg-gray-900/75 dark:shadow-indigo-950/40 dark:ring-white/5">
-            {/* Top accent line */}
-            <div className="absolute left-6 right-6 top-0 h-px bg-gradient-to-r from-transparent via-indigo-400/50 to-transparent dark:via-indigo-400/30" />
-
-            <div className="flex flex-col items-center text-center">
-              {/* Icon cluster */}
-              <div className="relative mb-8">
-                <div className="absolute inset-0 animate-pulse rounded-2xl bg-gradient-to-tr from-indigo-500/20 to-violet-500/20 blur-xl dark:from-indigo-400/15 dark:to-violet-400/15" />
-                <div className="relative flex h-20 w-20 items-center justify-center rounded-2xl border border-indigo-200/80 bg-gradient-to-br from-indigo-500 to-violet-600 shadow-lg shadow-indigo-500/25 dark:border-indigo-400/30 dark:shadow-indigo-900/50">
-                  <svg
-                    className="h-10 w-10 text-white drop-shadow-sm"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                    strokeWidth={1.5}
-                    aria-hidden
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M3.75 3v11.25A2.25 2.25 0 006 16.5h2.25M3.75 3h-1.5m1.5 0h16.5m0 0h1.5m-1.5 0v11.25A2.25 2.25 0 0118 16.5h-2.25m-7.5 0h7.5m-7.5 0l-1 3m8.5-3l1 3m0 0l.5 1.5m-.5-1.5h-9.5m0 0l-.5 1.5M9 11.25v1.5M12 9v3.75m3-6v6"
-                    />
-                  </svg>
-                </div>
-                {/* Decorative mini bars */}
-                <div className="absolute -right-1 -top-1 flex gap-0.5 opacity-60">
-                  <span className="h-3 w-1 rounded-full bg-indigo-300 dark:bg-indigo-500" />
-                  <span className="h-5 w-1 rounded-full bg-violet-300 dark:bg-violet-500" />
-                  <span className="h-4 w-1 rounded-full bg-indigo-200 dark:bg-indigo-400" />
-                </div>
-              </div>
-
-              <span className="mb-3 inline-flex items-center gap-2 rounded-full border border-amber-200/90 bg-amber-50/90 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-amber-800 dark:border-amber-500/35 dark:bg-amber-950/50 dark:text-amber-200">
-                <StatusPing tone="amber" className="relative flex h-2 w-2 shrink-0 items-center justify-center" size="h-2 w-2" />
-                Work in progress
-              </span>
-
-              <h1 className="bg-gradient-to-br from-gray-900 via-gray-800 to-gray-600 bg-clip-text text-2xl font-bold tracking-tight text-transparent dark:from-white dark:via-gray-100 dark:to-gray-400 sm:text-3xl">
-                Dashboard
-              </h1>
-
-              <p className="mt-4 text-sm leading-relaxed text-gray-600 dark:text-gray-400">
-                We&apos;re crafting analytics here—run summaries, trends, and quality insights. Check back
-                soon for a full picture of how your agents perform across tests.
-              </p>
-
-              <div className="mt-8 flex w-full max-w-xs flex-col gap-2">
-                <div className="flex items-center gap-3 text-left">
-                  <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-gray-200/90 dark:bg-gray-700/80">
-                    <span className="block h-full w-[38%] rounded-full bg-gradient-to-r from-indigo-500 to-violet-500" />
-                  </span>
-                  <span className="text-[10px] font-medium tabular-nums text-gray-400 dark:text-gray-500">
-                    38%
-                  </span>
-                </div>
-                <p className="text-center text-[11px] text-gray-400 dark:text-gray-500">
-                  Coming soon · metrics &amp; visualizations in development
-                </p>
-              </div>
-            </div>
+      <div className="relative flex h-full min-h-0 flex-col overflow-auto p-6 sm:p-10">
+        {!isAdmin && memberGate ? (
+          <div className="mb-8 flex max-w-lg border-b border-gray-200 dark:border-gray-700 pb-3">
+            <span className="rounded-lg bg-indigo-50 px-3 py-1.5 text-sm font-semibold text-indigo-800 dark:bg-indigo-950/80 dark:text-indigo-200">
+              {tabLabel}
+            </span>
           </div>
-        </div>
+        ) : null}
+
+        <div className="flex flex-1 min-h-0 items-start justify-center">{main}</div>
       </div>
     </div>
   );
