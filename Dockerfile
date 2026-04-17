@@ -17,8 +17,8 @@ RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
 
 WORKDIR /app
 
-# Baked into Next rewrites at build time — must match `start.sh` (uvicorn on 8000).
-ENV API_INTERNAL_URL=http://127.0.0.1:8000
+# Baked into Next rewrites (see client/next.config.ts). Not Railway `PORT` / not `API_INTERNAL_*`.
+ENV DOCKER_INTERNAL_API=http://127.0.0.1:8000
 
 # -- Python deps --
 COPY server/requirements.txt /app/server/requirements.txt
